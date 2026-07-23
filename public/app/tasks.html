@@ -11,11 +11,30 @@
   <link rel="stylesheet" href="/assets/shared.css" />
   <style>
     .done-title { text-decoration: line-through; color: var(--muted); }
-    .check-btn { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--border-strong); background: transparent; cursor: pointer; padding: 0; font-size: 0.9rem; line-height: 1; color: #fff; }
+    .check-btn { width: 24px; height: 24px; flex-shrink: 0; border-radius: 50%; border: 2px solid var(--border-strong); background: transparent; cursor: pointer; padding: 0; font-size: 0.85rem; line-height: 1; color: #fff; }
     .check-btn:hover { border-color: var(--orange); }
     .check-btn.done { background: var(--orange); border-color: var(--orange); }
     .row-x { border: none; background: none; cursor: pointer; color: var(--muted); font-size: 1.1rem; line-height: 1; padding: 4px 8px; }
     .row-x:hover { color: var(--orange-dark); }
+    .row-click { cursor: pointer; }
+    .prio { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; font-size: 0.72rem; }
+    .prio .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+    /* Board */
+    .board { display: grid; grid-template-columns: repeat(3, minmax(240px, 1fr)); gap: 16px; align-items: start; }
+    .board-col { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; min-height: 140px; transition: border-color 0.12s; }
+    .board-col.drop-hover { border-color: var(--orange); background: var(--panel-2); }
+    .board-col h3 { font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .board-col .col-count { color: var(--muted); font-weight: 600; font-size: 0.8rem; }
+    .card { background: var(--panel-2); border: 1px solid var(--border); border-left: 4px solid var(--muted); border-radius: 7px; padding: 10px 11px; margin-bottom: 9px; cursor: pointer; }
+    .card:hover { border-color: var(--border-strong); }
+    .card.done { opacity: 0.5; }
+    .card.done .card-title { text-decoration: line-through; }
+    .card-top { display: flex; align-items: flex-start; gap: 8px; }
+    .card-title { font-weight: 600; flex: 1; line-height: 1.3; }
+    .card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 0.76rem; }
+    .board-empty { color: var(--muted); font-size: 0.82rem; padding: 8px 2px; }
+    @media (max-width: 820px) { .board { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -24,13 +43,15 @@
     <main class="content">
       <div class="page-head">
         <div><h1>Tasks</h1><p class="sub" id="count-sub">—</p></div>
-        <div class="page-actions"><button class="btn btn-primary" id="new-btn">+ New task</button></div>
+        <div class="page-actions">
+          <div class="filter-row" style="margin: 0;">
+            <button class="filter-pill" id="view-board" data-view="board">Board</button>
+            <button class="filter-pill" id="view-list" data-view="list">List</button>
+          </div>
+          <button class="btn btn-primary" id="new-btn">+ New task</button>
+        </div>
       </div>
-
-      <div class="panel"><div class="table-scroll"><table class="data-table">
-        <thead><tr><th style="width:40px;"></th><th>Task</th><th>Person</th><th>Due</th><th style="width:40px;"></th></tr></thead>
-        <tbody id="rows"></tbody>
-      </table></div><div id="empty" class="empty hidden">No tasks yet.</div></div>
+      <div id="view-root"></div>
     </main>
   </div>
 
@@ -39,68 +60,178 @@
     requireAuth();
     initShell('tasks');
 
-    const OWNERS = ['Will Bertoncini', 'Joshua Berry'];
-    let tasks = [];
+    const COLUMNS = ['Joshua Berry', 'Will Bertoncini', 'Team'];
+    const PRIORITY = {
+      high:   { label: 'High',   color: '#ff6b00' },
+      medium: { label: 'Medium', color: '#c2a878' },
+      low:    { label: 'Low',    color: '#7c756a' },
+    };
+    const prio = (t) => PRIORITY[t.priority] || PRIORITY.medium;
+    const colOf = (t) => (COLUMNS.includes(t.owner) ? t.owner : 'Team');
 
-    function sorted() {
-      // Open first (soonest due -> latest), then completed (soonest -> latest).
-      return tasks.slice().sort((a, b) => {
+    let tasks = [];
+    let view = localStorage.getItem('ignite_tasks_view') || 'board';
+
+    function sortForColumn(list) {
+      return list.slice().sort((a, b) => {
         if ((a.status === 'done') !== (b.status === 'done')) return a.status === 'done' ? 1 : -1;
+        const order = { high: 0, medium: 1, low: 2 };
+        if (a.status !== 'done' && order[a.priority] !== order[b.priority]) return (order[a.priority] ?? 1) - (order[b.priority] ?? 1);
         return String(a.due || '9999-99-99').localeCompare(String(b.due || '9999-99-99'));
       });
     }
 
-    function render() {
-      const list = sorted();
-      const open = tasks.filter((t) => t.status !== 'done').length;
-      document.getElementById('count-sub').textContent = `${open} open · ${tasks.length} total`;
-      document.getElementById('empty').classList.toggle('hidden', list.length > 0);
-      const overdue = (t) => t.due && t.status !== 'done' && new Date(t.due + 'T23:59:59') < new Date();
-      document.getElementById('rows').innerHTML = list.map((t) => {
-        const done = t.status === 'done';
-        return `<tr>
-          <td><button class="check-btn ${done ? 'done' : ''}" data-id="${t.id}" title="${done ? 'Mark not done' : 'Mark completed'}">${done ? '✓' : ''}</button></td>
-          <td><span class="${done ? 'done-title' : ''}" style="font-weight:600;">${escapeHtml(t.title)}</span>${done ? ' <span class="badge badge-cream">Completed</span>' : ''}</td>
-          <td>${escapeHtml(t.owner || '—')}</td>
-          <td>${t.due ? (overdue(t) ? `<span class="badge badge-orange">${fmtDateShort(t.due)}</span>` : fmtDateShort(t.due)) : '—'}</td>
-          <td class="num-cell"><button class="row-x" data-del="${t.id}" title="Remove">✕</button></td>
-        </tr>`;
-      }).join('');
+    async function patchTask(id, patch, localTask) {
+      try { const r = await api(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }); if (localTask) Object.assign(localTask, r.record); return true; }
+      catch (e) { toast(e.message, true); return false; }
+    }
 
-      document.querySelectorAll('.check-btn').forEach((b) => b.addEventListener('click', async () => {
-        const t = tasks.find((x) => x.id === b.dataset.id); if (!t) return;
-        const next = t.status === 'done' ? 'todo' : 'done';
-        try { await api(`/api/tasks/${t.id}`, { method: 'PATCH', body: JSON.stringify({ status: next }) }); t.status = next; render(); }
-        catch (e) { toast(e.message, true); }
+    function render() {
+      const active = tasks.filter((t) => !t.archived);
+      const open = active.filter((t) => t.status !== 'done').length;
+      document.getElementById('count-sub').textContent = `${open} open · ${active.length} total`;
+      document.getElementById('view-board').classList.toggle('active', view === 'board');
+      document.getElementById('view-list').classList.toggle('active', view === 'list');
+      if (view === 'board') renderBoard(active); else renderList(active);
+    }
+
+    /* --------------------------------- board -------------------------------- */
+    function renderBoard(active) {
+      const root = document.getElementById('view-root');
+      root.innerHTML = `<div class="board">${COLUMNS.map((col) => {
+        const list = sortForColumn(active.filter((t) => colOf(t) === col));
+        const openN = list.filter((t) => t.status !== 'done').length;
+        return `<div class="board-col" data-col="${escapeHtml(col)}">
+          <h3>${escapeHtml(col)}<span class="col-count">${openN} open</span></h3>
+          <div class="col-body">
+            ${list.length ? list.map(cardHtml).join('') : '<div class="board-empty">No tasks.</div>'}
+          </div>
+        </div>`;
+      }).join('')}</div>`;
+      wireCards(root);
+      wireColumns(root);
+    }
+
+    function cardHtml(t) {
+      const p = prio(t);
+      const done = t.status === 'done';
+      return `<div class="card ${done ? 'done' : ''}" style="border-left-color:${p.color};" draggable="true" data-id="${t.id}">
+        <div class="card-top">
+          <button class="check-btn ${done ? 'done' : ''}" data-check="${t.id}" title="${done ? 'Mark not done' : 'Mark completed'}">${done ? '✓' : ''}</button>
+          <span class="card-title">${escapeHtml(t.title)}</span>
+        </div>
+        <div class="card-meta">
+          <span class="prio"><span class="dot" style="background:${p.color};"></span>${p.label}</span>
+          <span>${t.due ? fmtDateShort(t.due) : ''}</span>
+        </div>
+      </div>`;
+    }
+
+    function wireCards(root) {
+      root.querySelectorAll('.check-btn').forEach((b) => b.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const t = tasks.find((x) => x.id === b.dataset.check); if (!t) return;
+        if (await patchTask(t.id, { status: t.status === 'done' ? 'todo' : 'done' }, t)) render();
       }));
-      document.querySelectorAll('.row-x').forEach((b) => b.addEventListener('click', async () => {
+      root.querySelectorAll('.card').forEach((card) => {
+        card.addEventListener('click', () => { const t = tasks.find((x) => x.id === card.dataset.id); if (t) openForm(t); });
+        card.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', card.dataset.id); e.dataTransfer.effectAllowed = 'move'; card.style.opacity = '0.4'; });
+        card.addEventListener('dragend', () => { card.style.opacity = ''; });
+      });
+    }
+
+    function wireColumns(root) {
+      root.querySelectorAll('.board-col').forEach((col) => {
+        col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('drop-hover'); });
+        col.addEventListener('dragleave', () => col.classList.remove('drop-hover'));
+        col.addEventListener('drop', async (e) => {
+          e.preventDefault(); col.classList.remove('drop-hover');
+          const id = e.dataTransfer.getData('text/plain');
+          const t = tasks.find((x) => x.id === id); if (!t) return;
+          const target = col.dataset.col;
+          if (colOf(t) === target) return;
+          if (await patchTask(t.id, { owner: target }, t)) { toast(`Moved to ${target}`); render(); }
+        });
+      });
+    }
+
+    /* --------------------------------- list --------------------------------- */
+    function renderList(active) {
+      const list = active.slice().sort((a, b) => {
+        if ((a.status === 'done') !== (b.status === 'done')) return a.status === 'done' ? 1 : -1;
+        return String(a.due || '9999-99-99').localeCompare(String(b.due || '9999-99-99'));
+      });
+      const overdue = (t) => t.due && t.status !== 'done' && new Date(t.due + 'T23:59:59') < new Date();
+      const root = document.getElementById('view-root');
+      root.innerHTML = `<div class="panel"><div class="table-scroll"><table class="data-table">
+        <thead><tr><th style="width:40px;"></th><th>Task</th><th>Person</th><th>Priority</th><th>Due</th><th style="width:40px;"></th></tr></thead>
+        <tbody>${list.map((t) => {
+          const done = t.status === 'done'; const p = prio(t);
+          return `<tr class="row-click" data-open="${t.id}">
+            <td><button class="check-btn ${done ? 'done' : ''}" data-check="${t.id}">${done ? '✓' : ''}</button></td>
+            <td><span class="${done ? 'done-title' : ''}" style="font-weight:600;">${escapeHtml(t.title)}</span></td>
+            <td>${escapeHtml(colOf(t))}</td>
+            <td><span class="prio"><span class="dot" style="background:${p.color};"></span>${p.label}</span></td>
+            <td>${t.due ? (overdue(t) ? `<span class="badge badge-orange">${fmtDateShort(t.due)}</span>` : fmtDateShort(t.due)) : '—'}</td>
+            <td class="num-cell"><button class="row-x" data-del="${t.id}" title="Remove">✕</button></td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>${list.length ? '' : '<div class="empty">No tasks yet.</div>'}</div>`;
+      root.querySelectorAll('.check-btn').forEach((b) => b.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const t = tasks.find((x) => x.id === b.dataset.check); if (!t) return;
+        if (await patchTask(t.id, { status: t.status === 'done' ? 'todo' : 'done' }, t)) render();
+      }));
+      root.querySelectorAll('tr[data-open]').forEach((tr) => tr.addEventListener('click', (e) => {
+        if (e.target.closest('.check-btn') || e.target.closest('.row-x')) return;
+        const t = tasks.find((x) => x.id === tr.dataset.open); if (t) openForm(t);
+      }));
+      root.querySelectorAll('.row-x').forEach((b) => b.addEventListener('click', async (e) => {
+        e.stopPropagation();
         if (!confirm('Remove this task?')) return;
         try { await api(`/api/tasks/${b.dataset.del}`, { method: 'DELETE' }); tasks = tasks.filter((x) => x.id !== b.dataset.del); toast('Task removed'); render(); }
-        catch (e) { toast(e.message, true); }
+        catch (err) { toast(err.message, true); }
       }));
     }
 
-    function openForm() {
+    /* --------------------------------- form --------------------------------- */
+    function openForm(task) {
+      const t = task || {};
       const modal = openModal(`
-        <h2>New task</h2>
-        <div class="field"><label>Task</label><input id="f-title" /></div>
+        <h2>${task ? 'Edit task' : 'New task'}</h2>
+        <div class="field"><label>Task</label><input id="f-title" value="${escapeHtml(t.title || '')}" /></div>
         <div class="field-row">
-          <div class="field"><label>Person responsible</label><select id="f-owner"><option value=""></option>${OWNERS.map((o) => `<option>${o}</option>`).join('')}</select></div>
-          <div class="field"><label>Due date</label><input type="date" id="f-due" /></div>
+          <div class="field"><label>Person responsible</label><select id="f-owner">${COLUMNS.map((o) => `<option ${o === (t.owner || 'Team') ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
+          <div class="field"><label>Priority</label><select id="f-priority">${Object.entries(PRIORITY).map(([k, v]) => `<option value="${k}" ${k === (t.priority || 'medium') ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
         </div>
+        <div class="field"><label>Due date</label><input type="date" id="f-due" value="${escapeHtml(t.due || '')}" /></div>
         <p class="form-error" id="f-err"></p>
-        <div class="modal-actions"><button class="btn btn-ghost" id="f-cancel">Cancel</button><button class="btn btn-primary" id="f-save">Add task</button></div>`);
+        <div class="modal-actions">
+          ${task ? '<button class="btn btn-danger" id="f-delete">Remove</button><div class="spacer"></div>' : ''}
+          <button class="btn btn-ghost" id="f-cancel">Cancel</button>
+          <button class="btn btn-primary" id="f-save">${task ? 'Save' : 'Add task'}</button>
+        </div>`);
       modal.querySelector('#f-cancel').addEventListener('click', closeModal);
+      if (task) {
+        modal.querySelector('#f-delete').addEventListener('click', async () => {
+          if (!confirm('Remove this task?')) return;
+          try { await api(`/api/tasks/${task.id}`, { method: 'DELETE' }); tasks = tasks.filter((x) => x.id !== task.id); closeModal(); toast('Task removed'); render(); }
+          catch (e) { modal.querySelector('#f-err').textContent = e.message; }
+        });
+      }
       modal.querySelector('#f-save').addEventListener('click', async () => {
         const body = {
           title: modal.querySelector('#f-title').value.trim(),
           owner: modal.querySelector('#f-owner').value,
+          priority: modal.querySelector('#f-priority').value,
           due: modal.querySelector('#f-due').value,
-          status: 'todo',
         };
         if (!body.title) { modal.querySelector('#f-err').textContent = 'Enter a task.'; return; }
-        try { const r = await api('/api/tasks', { method: 'POST', body: JSON.stringify(body) }); tasks.push(r.record); closeModal(); toast('Task added'); render(); }
-        catch (e) { modal.querySelector('#f-err').textContent = e.message; }
+        try {
+          if (task) { const r = await api(`/api/tasks/${task.id}`, { method: 'PATCH', body: JSON.stringify(body) }); Object.assign(task, r.record); toast('Task saved'); }
+          else { body.status = 'todo'; const r = await api('/api/tasks', { method: 'POST', body: JSON.stringify(body) }); tasks.push(r.record); toast('Task added'); }
+          closeModal(); render();
+        } catch (e) { modal.querySelector('#f-err').textContent = e.message; }
       });
       modal.querySelector('#f-title').focus();
     }
@@ -110,7 +241,9 @@
       catch (e) { toast(e.message, true); }
     }
 
-    document.getElementById('new-btn').addEventListener('click', openForm);
+    document.getElementById('new-btn').addEventListener('click', () => openForm());
+    document.getElementById('view-board').addEventListener('click', () => { view = 'board'; localStorage.setItem('ignite_tasks_view', view); render(); });
+    document.getElementById('view-list').addEventListener('click', () => { view = 'list'; localStorage.setItem('ignite_tasks_view', view); render(); });
     load();
   </script>
 </body>

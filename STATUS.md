@@ -57,11 +57,18 @@ requires `Authorization: Bearer <token>`.
 - **Dashboard** — KPI tiles (cash balance, revenue YTD, net YTD, outstanding
   invoices, open tasks, clients, prospects), 6-month revenue/expense/profit
   chart, recent transactions, upcoming tasks + events.
-- **Calendar** — month / week / day; click a day to create, click an event to edit.
-- **Tasks** — minimal (task, person responsible, due date, done toggle), sorted
-  soonest-due first.
-- **Clients** — name, company, contact, service, active/inactive toggle, remove.
-- **Prospects** — name, company, contact, remove.
+- **Calendar** — month / week / day; click a day to create, click an event to
+  edit. Each event has a meeting-prep checklist (topics/documents, checkable);
+  events with prep show a 📋 marker.
+- **Tasks** — Board view (Trello-style: columns for Joshua Berry / Will
+  Bertoncini / Team; drag cards between columns to reassign) and List view,
+  toggle persisted per browser. Tasks carry a priority (low/medium/high,
+  color-coded on-brand) plus person, due date, done toggle. Click a card/row to
+  edit.
+- **Clients** — name, company, contact, service, active/inactive toggle, remove;
+  click a row to edit.
+- **Prospects** — name, company, contact, location, business type, service,
+  remove; click a row to edit.
 - **Finances** — tabs: Transactions (unified type form + in/out/net), Revenue
   (invoices + mark-paid), Assets (register), Reports (P&L for month/quarter/year/
   all with expense-by-category donut, CSV export, print/PDF).

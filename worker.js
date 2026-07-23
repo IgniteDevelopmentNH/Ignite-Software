@@ -305,7 +305,8 @@ function normalizeClient(body, existing) {
   };
 }
 
-// Tasks are intentionally minimal: task, person responsible, due date, done/not.
+// Tasks: task, person responsible (Board columns key off this), due date,
+// priority (low/medium/high), done/not.
 function normalizeTask(body, existing) {
   const base = existing || { id: genId(), createdAt: nowISO(), archived: false };
   return {
@@ -313,10 +314,21 @@ function normalizeTask(body, existing) {
     title: str(body.title ?? base.title, 300),
     owner: str(body.owner ?? base.owner, 200),
     due: str(body.due ?? base.due, 40),
+    priority: oneOf(body.priority ?? base.priority, ['low', 'medium', 'high'], 'medium'),
     status: oneOf(body.status ?? base.status, ['todo', 'done'], 'todo'),
     archived: typeof body.archived === 'boolean' ? body.archived : base.archived,
     updatedAt: nowISO(),
   };
+}
+
+// A meeting-prep checklist item: { text, done }.
+function normalizePrep(list, existing) {
+  const src = Array.isArray(list) ? list : existing;
+  if (!Array.isArray(src)) return [];
+  return src.slice(0, 100).map((it) => ({
+    text: str(it && it.text, 500),
+    done: !!(it && it.done),
+  })).filter((it) => it.text);
 }
 
 function normalizeEvent(body, existing) {
@@ -329,6 +341,7 @@ function normalizeEvent(body, existing) {
     allDay: typeof body.allDay === 'boolean' ? body.allDay : !!base.allDay,
     location: str(body.location ?? base.location, 300),
     prospectId: str(body.prospectId ?? base.prospectId, 40),
+    prep: normalizePrep(body.prep, base.prep),
     notes: str(body.notes ?? base.notes, 5000),
     updatedAt: nowISO(),
   };

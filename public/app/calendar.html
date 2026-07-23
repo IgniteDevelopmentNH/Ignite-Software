@@ -80,7 +80,7 @@
         const evs = evsOn(d);
         cells += `<div class="cal-cell ${other ? 'other' : ''} ${sameDay(d, today) ? 'today' : ''}" data-date="${d.toISOString()}">
           <span class="daynum">${d.getDate()}</span>
-          ${evs.slice(0, 3).map((e) => `<span class="cal-ev" data-id="${e.id}" title="${escapeHtml(e.title)}">${e.allDay ? '' : fmtTime(e.start) + ' '}${escapeHtml(e.title)}</span>`).join('')}
+          ${evs.slice(0, 3).map((e) => `<span class="cal-ev" data-id="${e.id}" title="${escapeHtml(e.title)}">${e.allDay ? '' : fmtTime(e.start) + ' '}${escapeHtml(e.title)}${e.prep && e.prep.length ? ' 📋' : ''}</span>`).join('')}
           ${evs.length > 3 ? `<span class="cal-ev" style="background:none;border:none;color:var(--muted);">+${evs.length - 3} more</span>` : ''}
         </div>`;
       }
@@ -94,7 +94,7 @@
         const evs = evsOn(d);
         return `<div class="day-col ${sameDay(d, today) ? 'today' : ''}" data-date="${d.toISOString()}">
           <h3>${d.toLocaleDateString('en-US', { weekday: 'short' })} ${d.getDate()}</h3>
-          ${evs.map((e) => `<div class="ev-row" data-id="${e.id}"><div class="et">${escapeHtml(e.title)}</div><div class="em">${e.allDay ? 'All day' : fmtTime(e.start)}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div></div>`).join('') || '<p class="empty" style="padding:6px 0;">—</p>'}
+          ${evs.map((e) => `<div class="ev-row" data-id="${e.id}"><div class="et">${escapeHtml(e.title)}</div><div class="em">${e.allDay ? 'All day' : fmtTime(e.start)}${e.location ? ' · ' + escapeHtml(e.location) : ''}${e.prep && e.prep.length ? ' · 📋 ' + e.prep.length : ''}</div></div>`).join('') || '<p class="empty" style="padding:6px 0;">—</p>'}
         </div>`;
       }).join('')}</div>`;
       wireCells();
@@ -105,7 +105,7 @@
       const evs = evsOn(cursor);
       document.getElementById('cal-root').innerHTML = `<div class="day-col ${sameDay(cursor, today) ? 'today' : ''}" data-date="${cursor.toISOString()}" style="max-width:640px;">
         <h3>${cursor.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
-        ${evs.map((e) => `<div class="ev-row" data-id="${e.id}"><div class="et">${escapeHtml(e.title)}</div><div class="em">${e.allDay ? 'All day' : fmtTime(e.start) + (e.end ? '–' + fmtTime(e.end) : '')}${e.location ? ' · ' + escapeHtml(e.location) : ''}${pName(e.prospectId) ? ' · ' + escapeHtml(pName(e.prospectId)) : ''}</div></div>`).join('') || '<p class="empty">No events. Click here to add one.</p>'}
+        ${evs.map((e) => `<div class="ev-row" data-id="${e.id}"><div class="et">${escapeHtml(e.title)}</div><div class="em">${e.allDay ? 'All day' : fmtTime(e.start) + (e.end ? '–' + fmtTime(e.end) : '')}${e.location ? ' · ' + escapeHtml(e.location) : ''}${pName(e.prospectId) ? ' · ' + escapeHtml(pName(e.prospectId)) : ''}${e.prep && e.prep.length ? ' · 📋 ' + e.prep.filter((x) => !x.done).length + '/' + e.prep.length : ''}</div></div>`).join('') || '<p class="empty">No events. Click here to add one.</p>'}
       </div>`;
       wireCells();
     }
@@ -144,6 +144,15 @@
           <div class="field"><label>Related prospect</label><select id="f-prospect"><option value="">— none —</option>${opts}</select></div>
         </div>
         <div class="field"><label style="display:flex;align-items:center;gap:8px;font-weight:600;"><input type="checkbox" id="f-allday" ${e.allDay ? 'checked' : ''} style="width:auto;" /> All-day event</label></div>
+        <div class="field">
+          <label>Preparation checklist</label>
+          <div id="prep-list"></div>
+          <div style="display:flex;gap:8px;margin-top:6px;">
+            <input id="prep-input" style="flex:1;" />
+            <button type="button" class="btn btn-ghost btn-small" id="prep-add">Add</button>
+          </div>
+          <p class="hint" style="margin:6px 0 0;">Discussion topics to mention or documents to bring.</p>
+        </div>
         <div class="field"><label>Notes</label><textarea id="f-notes">${escapeHtml(e.notes || '')}</textarea></div>
         <p class="form-error" id="f-err"></p>
         <div class="modal-actions">
@@ -152,6 +161,26 @@
           <button class="btn btn-ghost" id="f-cancel">Cancel</button><button class="btn btn-primary" id="f-save">Save</button>
         </div>`);
       modal.querySelector('#f-cancel').addEventListener('click', closeModal);
+
+      // Meeting-prep checklist (topics to mention / documents to bring).
+      let prepItems = (e.prep || []).map((it) => ({ text: it.text, done: !!it.done }));
+      const prepList = modal.querySelector('#prep-list');
+      const prepInput = modal.querySelector('#prep-input');
+      function drawPrep() {
+        prepList.innerHTML = prepItems.length ? prepItems.map((it, i) => `
+          <div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
+            <input type="checkbox" ${it.done ? 'checked' : ''} data-i="${i}" class="prep-check" style="width:auto;" />
+            <span style="flex:1;${it.done ? 'text-decoration:line-through;color:var(--muted);' : ''}">${escapeHtml(it.text)}</span>
+            <button type="button" data-i="${i}" class="prep-del" style="border:none;background:none;cursor:pointer;color:var(--muted);font-size:1.05rem;padding:0 4px;">✕</button>
+          </div>`).join('') : '<p class="hint" style="margin:2px 0;">No items yet.</p>';
+        prepList.querySelectorAll('.prep-check').forEach((c) => c.addEventListener('change', () => { prepItems[c.dataset.i].done = c.checked; drawPrep(); }));
+        prepList.querySelectorAll('.prep-del').forEach((b) => b.addEventListener('click', () => { prepItems.splice(Number(b.dataset.i), 1); drawPrep(); }));
+      }
+      function addPrep() { const v = prepInput.value.trim(); if (!v) return; prepItems.push({ text: v, done: false }); prepInput.value = ''; drawPrep(); prepInput.focus(); }
+      modal.querySelector('#prep-add').addEventListener('click', addPrep);
+      prepInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); addPrep(); } });
+      drawPrep();
+
       if (event) modal.querySelector('#f-del').addEventListener('click', async () => {
         if (!confirm('Delete this event?')) return;
         try { await api(`/api/events/${event.id}`, { method: 'DELETE' }); events = events.filter((x) => x.id !== event.id); closeModal(); toast('Event deleted'); render(); }
@@ -166,6 +195,7 @@
           location: modal.querySelector('#f-loc').value.trim(),
           prospectId: modal.querySelector('#f-prospect').value,
           allDay: modal.querySelector('#f-allday').checked,
+          prep: prepItems,
           notes: modal.querySelector('#f-notes').value.trim(),
         };
         if (!body.title) { modal.querySelector('#f-err').textContent = 'Title is required.'; return; }
