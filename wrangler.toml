@@ -1,4 +1,4 @@
-name = "ignite-portal"
+name = "ignite-software"
 main = "worker.js"
 compatibility_date = "2024-09-23"
 
