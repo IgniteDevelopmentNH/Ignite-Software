@@ -272,7 +272,7 @@ function oneOf(v, allowed, fallback) {
 const TXN_TYPES = ['revenue', 'expense', 'asset', 'contribution', 'distribution'];
 const INVOICE_STATUSES = ['draft', 'sent', 'paid', 'overdue'];
 
-// Prospects: name, company, contact.
+// Prospects: name, company, contact, business location, service (what they'd need).
 function normalizeProspect(body, existing) {
   const base = existing || { id: genId(), createdAt: nowISO(), archived: false };
   return {
@@ -280,6 +280,8 @@ function normalizeProspect(body, existing) {
     name: str(body.name ?? base.name, 200),
     company: str(body.company ?? base.company, 200),
     contact: str(body.contact ?? base.contact, 200),
+    location: str(body.location ?? base.location, 200),
+    service: str(body.service ?? base.service, 200),
     archived: typeof body.archived === 'boolean' ? body.archived : base.archived,
     updatedAt: nowISO(),
   };
@@ -561,7 +563,7 @@ async function handleSearch(request, env, cors) {
   prospects.filter((p) => !p.archived).forEach((p) =>
     add('Prospects', p.name || p.company || 'Prospect', p.company || p.contact,
       `/app/prospects.html?q=${encodeURIComponent(p.name || '')}`,
-      `${p.name} ${p.company} ${p.contact}`.toLowerCase()));
+      `${p.name} ${p.company} ${p.contact} ${p.location} ${p.service}`.toLowerCase()));
   tasks.filter((t) => !t.archived).forEach((t) =>
     add('Tasks', t.title, [t.status === 'done' ? 'completed' : 'open', t.owner].filter(Boolean).join(' · '),
       `/app/tasks.html?q=${encodeURIComponent(t.title || '')}`,

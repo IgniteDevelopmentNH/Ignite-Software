@@ -20,7 +20,7 @@
         <div class="page-actions"><button class="btn btn-primary" id="new-btn">+ New prospect</button></div>
       </div>
       <div class="panel"><div class="table-scroll"><table class="data-table">
-        <thead><tr><th>Name</th><th>Company</th><th>Contact</th><th style="width:40px;"></th></tr></thead>
+        <thead><tr><th>Name</th><th>Company</th><th>Contact</th><th>Location</th><th>Service</th><th style="width:40px;"></th></tr></thead>
         <tbody id="rows"></tbody>
       </table></div><div id="empty" class="empty hidden">No prospects yet.</div></div>
     </main>
@@ -41,6 +41,8 @@
           <td style="font-weight:600;">${escapeHtml(p.name || '—')}</td>
           <td>${escapeHtml(p.company || '—')}</td>
           <td>${escapeHtml(p.contact || '—')}</td>
+          <td>${escapeHtml(p.location || '—')}</td>
+          <td>${escapeHtml(p.service || '—')}</td>
           <td class="num-cell"><button class="row-x" data-id="${p.id}" title="Remove">✕</button></td>
         </tr>`).join('');
       document.querySelectorAll('.row-x').forEach((b) => b.addEventListener('click', async () => {
@@ -56,11 +58,19 @@
         <div class="field"><label>Name</label><input id="f-name" /></div>
         <div class="field"><label>Company</label><input id="f-company" /></div>
         <div class="field"><label>Contact</label><input id="f-contact" /></div>
+        <div class="field"><label>Business location</label><input id="f-location" /></div>
+        <div class="field"><label>Service</label><input id="f-service" /></div>
         <p class="form-error" id="f-err"></p>
         <div class="modal-actions"><button class="btn btn-ghost" id="f-cancel">Cancel</button><button class="btn btn-primary" id="f-save">Add prospect</button></div>`);
       modal.querySelector('#f-cancel').addEventListener('click', closeModal);
       modal.querySelector('#f-save').addEventListener('click', async () => {
-        const body = { name: modal.querySelector('#f-name').value.trim(), company: modal.querySelector('#f-company').value.trim(), contact: modal.querySelector('#f-contact').value.trim() };
+        const body = {
+          name: modal.querySelector('#f-name').value.trim(),
+          company: modal.querySelector('#f-company').value.trim(),
+          contact: modal.querySelector('#f-contact').value.trim(),
+          location: modal.querySelector('#f-location').value.trim(),
+          service: modal.querySelector('#f-service').value.trim(),
+        };
         if (!body.name && !body.company) { modal.querySelector('#f-err').textContent = 'Enter a name or company.'; return; }
         try { const r = await api('/api/prospects', { method: 'POST', body: JSON.stringify(body) }); items.push(r.record); closeModal(); toast('Prospect added'); render(); }
         catch (e) { modal.querySelector('#f-err').textContent = e.message; }
