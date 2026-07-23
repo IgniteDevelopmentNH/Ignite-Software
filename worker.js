@@ -32,7 +32,6 @@
  *   GET    /api/me
  *   GET    /api/dashboard
  *   GET    /api/search?q=
- *   POST   /api/seed                 (populate sample data if empty)
  *   GET|POST         /api/prospects           GET|PATCH|DELETE /api/prospects/:id
  *   GET|POST         /api/tasks               GET|PATCH|DELETE /api/tasks/:id
  *   GET|POST         /api/events              GET|PATCH|DELETE /api/events/:id
@@ -586,113 +585,6 @@ async function handleSearch(request, env, cors) {
   return json({ results: results.slice(0, 30) }, 200, cors);
 }
 
-/* --------------------------------- seed ----------------------------------- */
-
-async function handleSeed(env, cors) {
-  const existing = await listEntity(env, 'prospect:');
-  if (existing.length > 0) {
-    return json({ ok: true, seeded: false, message: 'Data already present — seed skipped.' }, 200, cors);
-  }
-  await seedSampleData(env);
-  return json({ ok: true, seeded: true }, 201, cors);
-}
-
-async function seedSampleData(env) {
-  const today = new Date();
-  const iso = (y, m, d) => new Date(y, m, d).toISOString().slice(0, 10);
-  const Y = today.getFullYear();
-  const M = today.getMonth();
-  const put = (prefix, rec) => env.PORTAL_KV.put(`${prefix}${rec.id}`, JSON.stringify(rec));
-  const mk = (extra) => ({ id: genId(), createdAt: nowISO(), updatedAt: nowISO(), archived: false, ...extra });
-
-  const owners = ['Will Bertoncini', 'Joshua Berry'];
-  const clients = [
-    mk({ name: 'Elena Ruiz', company: 'Ruiz Bakery', contact: 'elena@ruizbakery.com', service: 'Website + ordering system', status: 'active' }),
-    mk({ name: 'Dan Cole', company: 'Cole Roofing', contact: 'dan@coleroofing.com', service: 'Website + SEO', status: 'active' }),
-    mk({ name: 'Maya Okafor', company: 'Okafor Studio', contact: '603-555-0164', service: 'Brand + website', status: 'inactive' }),
-  ];
-  const prospects = [
-    mk({ name: 'Sarah Whitfield', company: 'Whitfield Dental', contact: 'sarah@whitfielddental.com' }),
-    mk({ name: 'Marcus Lane', company: 'Lane Landscaping', contact: 'marcus@lanescapes.com' }),
-    mk({ name: 'Priya Nair', company: 'Nair Wellness', contact: 'priya@nairwellness.co' }),
-    mk({ name: 'Tom Alderman', company: 'Alderman HVAC', contact: 'tom@aldermanhvac.com' }),
-    mk({ name: 'Derek Foss', company: 'Foss Auto', contact: 'derek@fossauto.com' }),
-    mk({ name: 'Grant Miller', company: 'Miller Fitness', contact: 'grant@millerfit.com' }),
-  ];
-  const pById = Object.fromEntries(prospects.map((p) => [p.name, p.id]));
-  const tasks = [
-    mk({ title: 'Send Whitfield Dental proposal', owner: owners[0], due: iso(Y, M, today.getDate() + 1), status: 'todo' }),
-    mk({ title: 'Design mockups for Lane Landscaping', owner: owners[1], due: iso(Y, M, today.getDate() + 3), status: 'todo' }),
-    mk({ title: 'Nair Wellness contract review', owner: owners[0], due: iso(Y, M, today.getDate() + 2), status: 'todo' }),
-    mk({ title: 'Deploy Ruiz Bakery ordering site', owner: owners[1], due: iso(Y, M, today.getDate() - 1), status: 'todo' }),
-    mk({ title: 'Follow up with Foss Auto', owner: owners[0], due: iso(Y, M, today.getDate() + 7), status: 'todo' }),
-    mk({ title: 'Monthly bookkeeping', owner: owners[1], due: iso(Y, M, today.getDate() + 5), status: 'todo' }),
-    mk({ title: 'Miller Fitness discovery call', owner: owners[0], due: iso(Y, M, today.getDate() + 4), status: 'todo' }),
-    mk({ title: 'Renew hosting + domains', owner: owners[1], due: iso(Y, M, today.getDate() + 10), status: 'todo' }),
-    mk({ title: 'Update portfolio with Ruiz Bakery', owner: owners[0], due: iso(Y, M, today.getDate() - 3), status: 'done' }),
-    mk({ title: 'Quarterly tax estimate prep', owner: owners[1], due: iso(Y, M, today.getDate() + 12), status: 'todo' }),
-  ];
-  const at = (dayOffset, h, min) => { const d = new Date(Y, M, today.getDate() + dayOffset, h, min); return d.toISOString(); };
-  const events = [
-    mk({ title: 'Whitfield proposal call', start: at(1, 10, 0), end: at(1, 10, 30), allDay: false, location: 'Zoom', prospectId: pById['Sarah Whitfield'], notes: 'Walk through the proposal.' }),
-    mk({ title: 'Lane Landscaping kickoff', start: at(3, 14, 0), end: at(3, 15, 0), allDay: false, location: 'Google Meet', prospectId: pById['Marcus Lane'], notes: '' }),
-    mk({ title: 'Nair Wellness contract signing', start: at(5, 11, 0), end: at(5, 11, 30), allDay: false, location: 'Office', prospectId: pById['Priya Nair'], notes: '' }),
-    mk({ title: 'Team weekly sync', start: at(2, 9, 0), end: at(2, 9, 30), allDay: false, location: 'Office', prospectId: '', notes: 'Pipeline review.' }),
-    mk({ title: 'Miller Fitness discovery', start: at(4, 13, 0), end: at(4, 13, 45), allDay: false, location: 'Phone', prospectId: pById['Grant Miller'], notes: '' }),
-    mk({ title: 'Foss Auto follow-up', start: at(7, 15, 30), end: at(7, 16, 0), allDay: false, location: 'Phone', prospectId: pById['Derek Foss'], notes: '' }),
-    mk({ title: 'Quarterly finances review', start: at(9, 16, 0), end: at(9, 17, 0), allDay: false, location: 'Office', prospectId: '', notes: '' }),
-  ];
-
-  // Transactions across the last 6 months (money in cents).
-  const txns = [];
-  const addTxn = (type, amountCents, monthsAgo, day, category, description, owner) =>
-    txns.push(mk({ type, amountCents, date: iso(Y, M - monthsAgo, day), category, description, owner, prospectId: '' }));
-  // Owner contributions (startup capital)
-  addTxn('contribution', 1500000, 5, 2, 'Owner capital', 'Will — startup contribution', owners[0]);
-  addTxn('contribution', 1500000, 5, 2, 'Owner capital', 'Josh — startup contribution', owners[1]);
-  // Recurring expenses + monthly revenue
-  for (let m = 5; m >= 0; m--) {
-    addTxn('expense', 2900, m, 5, 'Software', 'Adobe Creative Cloud', owners[0]);
-    addTxn('expense', 2000, m, 5, 'Hosting', 'Cloudflare + domains', owners[1]);
-    addTxn('expense', 1500, m, 8, 'Software', 'Figma team', owners[0]);
-    if (m <= 4) addTxn('revenue', 350000 + m * 25000, m, 15, 'Web design', `Client project milestone`, owners[m % 2]);
-    if (m <= 3) addTxn('revenue', 120000, m, 20, 'Retainer', 'Monthly SEO retainer', owners[1]);
-  }
-  addTxn('revenue', 550000, 0, 12, 'Web design', 'Ruiz Bakery — final payment', owners[0]);
-  addTxn('expense', 45000, 2, 10, 'Equipment', 'Design tablet', owners[1]);
-  addTxn('expense', 8000, 1, 3, 'Meals', 'Client lunch — Nair Wellness', owners[0]);
-  addTxn('asset', 240000, 4, 6, 'Equipment', 'MacBook Pro (Will)', owners[0]);
-  addTxn('asset', 240000, 4, 6, 'Equipment', 'MacBook Pro (Josh)', owners[1]);
-  addTxn('distribution', 200000, 1, 28, 'Owner draw', 'Will — distribution', owners[0]);
-  addTxn('distribution', 200000, 1, 28, 'Owner draw', 'Josh — distribution', owners[1]);
-
-  const invoices = [
-    mk({ number: 'INV-1001', client: 'Ruiz Bakery', amountCents: 550000, status: 'paid', issueDate: iso(Y, M, 1), dueDate: iso(Y, M, 15), paidDate: iso(Y, M, 12), notes: 'Ordering site.' }),
-    mk({ number: 'INV-1002', client: 'Nair Wellness', amountCents: 600000, status: 'sent', issueDate: iso(Y, M, today.getDate() - 3), dueDate: iso(Y, M, today.getDate() + 12), paidDate: '', notes: 'Deposit — 50%.' }),
-    mk({ number: 'INV-1003', client: 'Whitfield Dental', amountCents: 425000, status: 'draft', issueDate: '', dueDate: '', paidDate: '', notes: 'Pending signature.' }),
-    mk({ number: 'INV-0998', client: 'Lane Landscaping', amountCents: 225000, status: 'overdue', issueDate: iso(Y, M - 1, 10), dueDate: iso(Y, M - 1, 25), paidDate: '', notes: 'Second reminder sent.' }),
-    mk({ number: 'INV-0995', client: 'Miller Fitness', amountCents: 310000, status: 'sent', issueDate: iso(Y, M, today.getDate() - 1), dueDate: iso(Y, M, today.getDate() + 14), paidDate: '', notes: '' }),
-  ];
-  const assets = [
-    mk({ name: 'MacBook Pro 16" (Will)', category: 'Equipment', purchaseCents: 240000, purchaseDate: iso(Y, M - 4, 6), notes: 'M-series, primary dev machine.' }),
-    mk({ name: 'MacBook Pro 16" (Josh)', category: 'Equipment', purchaseCents: 240000, purchaseDate: iso(Y, M - 4, 6), notes: 'M-series, primary dev machine.' }),
-    mk({ name: 'Wacom Tablet', category: 'Equipment', purchaseCents: 45000, purchaseDate: iso(Y, M - 2, 10), notes: 'Design work.' }),
-    mk({ name: 'ignitedevelopment.net domain', category: 'Intangible', purchaseCents: 3500, purchaseDate: iso(Y, M - 5, 2), notes: 'Primary domain.' }),
-  ];
-
-  const all = [
-    ...clients.map((r) => ['client:', r]),
-    ...prospects.map((r) => ['prospect:', r]),
-    ...tasks.map((r) => ['task:', r]),
-    ...events.map((r) => ['event:', r]),
-    ...txns.map((r) => ['txn:', r]),
-    ...invoices.map((r) => ['invoice:', r]),
-    ...assets.map((r) => ['asset:', r]),
-  ];
-  // KV puts are individual; do them all (small dataset).
-  for (const [prefix, rec] of all) await put(prefix, rec);
-}
-
 /* -------------------------------- router ---------------------------------- */
 
 export default {
@@ -724,7 +616,6 @@ export default {
       if (pathname === '/api/me' && method === 'GET') return await handleMe(email, env, cors);
       if (pathname === '/api/dashboard' && method === 'GET') return await handleDashboard(env, cors);
       if (pathname === '/api/search' && method === 'GET') return await handleSearch(request, env, cors);
-      if (pathname === '/api/seed' && method === 'POST') return await handleSeed(env, cors);
 
       // Entity routes: /api/<entity>  and  /api/<entity>/<id>
       const parts = pathname.split('/').filter(Boolean); // ['api', entity, id?]

@@ -48,18 +48,20 @@ calendar events are hard-deleted. Transaction types: `revenue`, `expense`,
 
 ## Endpoints
 `POST /api/register|login|logout`, `GET /api/me`, `GET /api/dashboard`,
-`GET /api/search?q=`, `POST /api/seed`, and full CRUD at
-`/api/{prospects,tasks,events,transactions,invoices,assets}` (`GET|POST` on the
+`GET /api/search?q=`, and full CRUD at
+`/api/{prospects,clients,tasks,events,transactions,invoices,assets}` (`GET|POST` on the
 collection, `GET|PATCH|DELETE` on `/:id`). Everything except register/login
 requires `Authorization: Bearer <token>`.
 
 ## Pages
 - **Dashboard** — KPI tiles (cash balance, revenue YTD, net YTD, outstanding
-  invoices, open tasks, pipeline), 6-month revenue/expense/profit chart, recent
-  transactions, upcoming tasks + events, one-click "Load sample data" when empty.
+  invoices, open tasks, clients, prospects), 6-month revenue/expense/profit
+  chart, recent transactions, upcoming tasks + events.
 - **Calendar** — month / week / day; click a day to create, click an event to edit.
-- **Tasks** — search, status pills, owner filter, sort, inline status change, modal.
-- **Prospects** — 7-stage pipeline summary cards (click to filter), search, modal.
+- **Tasks** — minimal (task, person responsible, due date, done toggle), sorted
+  soonest-due first.
+- **Clients** — name, company, contact, service, active/inactive toggle, remove.
+- **Prospects** — name, company, contact, remove.
 - **Finances** — tabs: Transactions (unified type form + in/out/net), Revenue
   (invoices + mark-paid), Assets (register), Reports (P&L for month/quarter/year/
   all with expense-by-category donut, CSV export, print/PDF).
@@ -68,7 +70,6 @@ requires `Authorization: Bearer <token>`.
 Requires Node.js 24+. No wrangler needed locally.
 ```
 npm run dev          # http://localhost:8788
-# log in, then "Load sample data" on the dashboard (or POST /api/seed)
 ```
 Reset local data: delete the `.data/` folder.
 
@@ -77,7 +78,6 @@ Reset local data: delete the `.data/` folder.
    `wrangler.toml` (`id = "..."`).
 2. `wrangler deploy`
 3. Each owner opens the site → "Set your password" (allowlisted emails only).
-   Optionally `POST /api/seed` once (authenticated) to load sample data.
    Set `OWNER_EMAILS` (comma-separated) as a Worker var to change the allowlist.
 
 NOTE (Windows ARM): `wrangler dev` needs `workerd` (no ARM64 build) — that's why

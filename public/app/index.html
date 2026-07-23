@@ -20,7 +20,6 @@
           <p class="sub" id="greeting">Ignite Development LLC</p>
         </div>
         <div class="page-actions">
-          <button class="btn btn-ghost" id="seed-btn" style="display:none;">Load sample data</button>
           <a class="btn btn-primary" href="/app/finances.html?new=1">+ New transaction</a>
         </div>
       </div>
@@ -76,9 +75,6 @@
       try { d = await api('/api/dashboard'); }
       catch (e) { toast(e.message, true); return; }
 
-      const empty = d.recentTransactions.length === 0 && d.activeProspectCount === 0 && d.activeClientCount === 0 && d.openTaskCount === 0;
-      document.getElementById('seed-btn').style.display = empty ? 'inline-flex' : 'none';
-
       document.getElementById('tiles').innerHTML = [
         tile('Cash balance', fmtMoney(d.balanceCents), { pos: d.balanceCents >= 0, neg: d.balanceCents < 0 }),
         tile('Revenue YTD', fmtMoney(d.revenueYtd, { noCents: true }), { sub: `${fmtMoney(d.revenueMonth, { noCents: true })} this month` }),
@@ -119,12 +115,6 @@
         </tr>`).join('')}
         </table>` : '<p class="empty">No upcoming events.</p>';
     }
-
-    document.getElementById('seed-btn').addEventListener('click', async (e) => {
-      e.target.disabled = true;
-      try { await api('/api/seed', { method: 'POST' }); toast('Sample data loaded'); await load(); }
-      catch (err) { toast(err.message, true); e.target.disabled = false; }
-    });
 
     load();
   </script>
