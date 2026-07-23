@@ -291,14 +291,22 @@
     }
 
     /* -------------------------------- reports ------------------------------- */
+    let reportPreset = 'year';
+    let customFrom = '';
+    let customTo = '';
+
     function rangeBounds(preset) {
       const now = new Date(); const y = now.getFullYear();
       if (preset === 'month') return [new Date(y, now.getMonth(), 1), new Date(y, now.getMonth() + 1, 0)];
       if (preset === 'quarter') { const q = Math.floor(now.getMonth() / 3); return [new Date(y, q * 3, 1), new Date(y, q * 3 + 3, 0)]; }
       if (preset === 'year') return [new Date(y, 0, 1), new Date(y, 11, 31)];
+      if (preset === 'custom') {
+        const s = customFrom ? new Date(customFrom + 'T00:00:00') : new Date(y, 0, 1);
+        const e = customTo ? new Date(customTo + 'T23:59:59') : now;
+        return [s, e];
+      }
       return [new Date(2000, 0, 1), new Date(2100, 0, 1)];
     }
-    let reportPreset = 'year';
 
     function renderReports() {
       const [start, end] = rangeBounds(reportPreset);
@@ -319,7 +327,12 @@
 
       document.getElementById('tab-body').innerHTML = `
         <div class="filter-row no-print" id="range-pills">
-          ${[['month', 'This month'], ['quarter', 'This quarter'], ['year', 'This year'], ['all', 'All time']].map(([v, l]) => `<button class="filter-pill ${v === reportPreset ? 'active' : ''}" data-v="${v}">${l}</button>`).join('')}
+          ${[['month', 'This month'], ['quarter', 'This quarter'], ['year', 'This year'], ['all', 'All time'], ['custom', 'Custom range']].map(([v, l]) => `<button class="filter-pill ${v === reportPreset ? 'active' : ''}" data-v="${v}">${l}</button>`).join('')}
+          ${reportPreset === 'custom' ? `
+            <input type="date" class="input" id="custom-from" value="${escapeHtml(customFrom)}" style="width:auto;" />
+            <span style="color:var(--muted);">to</span>
+            <input type="date" class="input" id="custom-to" value="${escapeHtml(customTo)}" style="width:auto;" />
+          ` : ''}
           <div class="spacer" style="flex:1;"></div>
           <button class="btn btn-ghost btn-small" id="csv-btn">Export CSV</button>
         </div>
@@ -350,18 +363,65 @@
             ${catSegs.length ? donutChart(catSegs, { centerSub: 'expenses' }) : '<p class="empty">No expenses in range.</p>'}
           </div>
         </div>`;
-      document.querySelectorAll('#range-pills .filter-pill').forEach((b) => b.addEventListener('click', () => { reportPreset = b.dataset.v; renderReports(); }));
+      document.querySelectorAll('#range-pills .filter-pill').forEach((b) => b.addEventListener('click', () => {
+        reportPreset = b.dataset.v;
+        if (reportPreset === 'custom' && !customFrom && !customTo) {
+          customFrom = `${new Date().getFullYear()}-01-01`;
+          customTo = todayISO();
+        }
+        renderReports();
+      }));
+      const fromInput = document.getElementById('custom-from');
+      const toInput = document.getElementById('custom-to');
+      if (fromInput) fromInput.addEventListener('change', (e) => { customFrom = e.target.value; renderReports(); });
+      if (toInput) toInput.addEventListener('change', (e) => { customTo = e.target.value; renderReports(); });
       document.getElementById('csv-btn').addEventListener('click', () => exportCSV(active, start, end));
     }
 
     function exportCSV(rows, start, end) {
-      const header = ['Date', 'Type', 'Category', 'Description', 'Owner', 'Amount'];
-      const lines = [header.join(',')];
+      const q = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+      const row = (...cells) => cells.map(q).join(',');
+      const money = (c) => (c / 100).toFixed(2);
+      const sum = (pred) => rows.filter(pred).reduce((s, t) => s + t.amountCents, 0);
+      const byCategory = (type) => {
+        const map = {};
+        rows.filter((t) => t.type === type).forEach((t) => { const k = t.category || 'Uncategorized'; map[k] = (map[k] || 0) + t.amountCents; });
+        return Object.entries(map).sort((a, b) => b[1] - a[1]);
+      };
+      const revenue = sum((t) => t.type === 'revenue');
+      const expense = sum((t) => t.type === 'expense');
+      const contrib = sum((t) => t.type === 'contribution');
+      const distrib = sum((t) => t.type === 'distribution');
+      const assetBuy = sum((t) => t.type === 'asset');
+      const net = revenue - expense;
+
+      const lines = [];
+      lines.push(row('Ignite Development LLC — Financial Summary'));
+      lines.push(row(`Period: ${start.toLocaleDateString()} - ${end.toLocaleDateString()}`));
+      lines.push('');
+      lines.push(row('REVENUE'));
+      lines.push(row('Category', 'Total'));
+      byCategory('revenue').forEach(([cat, val]) => lines.push(row(cat, money(val))));
+      lines.push(row('TOTAL REVENUE', money(revenue)));
+      lines.push('');
+      lines.push(row('EXPENSES'));
+      lines.push(row('Category', 'Total'));
+      byCategory('expense').forEach(([cat, val]) => lines.push(row(cat, money(val))));
+      lines.push(row('TOTAL EXPENSES', money(expense)));
+      lines.push('');
+      lines.push(row('NET PROFIT', money(net)));
+      lines.push('');
+      lines.push(row('OWNER ACTIVITY & ASSETS'));
+      lines.push(row('Owner contributions', money(contrib)));
+      lines.push(row('Owner distributions', money(distrib)));
+      lines.push(row('Asset purchases', money(assetBuy)));
+      lines.push('');
+      lines.push(row('TRANSACTION DETAIL'));
+      lines.push(row('Date', 'Type', 'Category', 'Description', 'Owner', 'Amount'));
       rows.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))).forEach((t) => {
-        const cells = [t.date, TXN_LABEL[t.type], t.category, t.description, t.owner, (t.amountCents / 100).toFixed(2)]
-          .map((c) => `"${String(c == null ? '' : c).replace(/"/g, '""')}"`);
-        lines.push(cells.join(','));
+        lines.push(row(t.date, TXN_LABEL[t.type], t.category, t.description, t.owner, money(t.amountCents)));
       });
+
       const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
