@@ -6,7 +6,7 @@ compatibility_date = "2024-09-23"
 # Then paste the id it prints in below.
 [[kv_namespaces]]
 binding = "PORTAL_KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "736ac6b8357147deae778a60d179312a"
 
 # Optional: file storage (invoices/receipts/asset docs) via R2.
 # Create with: wrangler r2 bucket create ignite-portal-files
