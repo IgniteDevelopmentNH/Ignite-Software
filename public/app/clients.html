@@ -13,6 +13,7 @@
     .row-x { border: none; background: none; cursor: pointer; color: var(--muted); font-size: 1.1rem; line-height: 1; padding: 4px 8px; }
     .row-x:hover { color: var(--orange-dark); }
     .status-toggle { border: none; cursor: pointer; font-family: var(--font); }
+    .row-click { cursor: pointer; }
   </style>
 </head>
 <body>
@@ -42,7 +43,7 @@
       document.getElementById('empty').classList.toggle('hidden', list.length > 0);
       document.getElementById('rows').innerHTML = list.map((c) => {
         const active = (c.status || 'active') === 'active';
-        return `<tr>
+        return `<tr class="row-click" data-open="${c.id}">
           <td style="font-weight:600;">${escapeHtml(c.name || '—')}</td>
           <td>${escapeHtml(c.company || '—')}</td>
           <td>${escapeHtml(c.contact || '—')}</td>
@@ -51,30 +52,52 @@
           <td class="num-cell"><button class="row-x" data-id="${c.id}" title="Remove">✕</button></td>
         </tr>`;
       }).join('');
-      document.querySelectorAll('.status-toggle').forEach((b) => b.addEventListener('click', async () => {
+      document.querySelectorAll('tr[data-open]').forEach((tr) => tr.addEventListener('click', (e) => {
+        if (e.target.closest('.row-x') || e.target.closest('.status-toggle')) return;
+        const c = items.find((x) => x.id === tr.dataset.open);
+        if (c) openForm(c);
+      }));
+      document.querySelectorAll('.status-toggle').forEach((b) => b.addEventListener('click', async (e) => {
+        e.stopPropagation();
         const c = items.find((x) => x.id === b.dataset.id); if (!c) return;
         const next = (c.status || 'active') === 'active' ? 'inactive' : 'active';
         try { await api(`/api/clients/${c.id}`, { method: 'PATCH', body: JSON.stringify({ status: next }) }); c.status = next; render(); }
         catch (e) { toast(e.message, true); }
       }));
-      document.querySelectorAll('.row-x').forEach((b) => b.addEventListener('click', async () => {
+      document.querySelectorAll('.row-x').forEach((b) => b.addEventListener('click', async (e) => {
+        e.stopPropagation();
         if (!confirm('Remove this client?')) return;
         try { await api(`/api/clients/${b.dataset.id}`, { method: 'DELETE' }); const c = items.find((x) => x.id === b.dataset.id); if (c) c.archived = true; toast('Client removed'); render(); }
         catch (e) { toast(e.message, true); }
       }));
     }
 
-    function openForm() {
+    function openForm(client) {
+      const c = client || {};
       const modal = openModal(`
-        <h2>New client</h2>
-        <div class="field"><label>Name</label><input id="f-name" /></div>
-        <div class="field"><label>Company</label><input id="f-company" /></div>
-        <div class="field"><label>Contact</label><input id="f-contact" /></div>
-        <div class="field"><label>Service</label><input id="f-service" /></div>
-        <div class="field"><label>Status</label><select id="f-status"><option value="active" selected>Active</option><option value="inactive">Inactive</option></select></div>
+        <h2>${client ? 'Edit client' : 'New client'}</h2>
+        <div class="field"><label>Name</label><input id="f-name" value="${escapeHtml(c.name || '')}" /></div>
+        <div class="field"><label>Company</label><input id="f-company" value="${escapeHtml(c.company || '')}" /></div>
+        <div class="field"><label>Contact</label><input id="f-contact" value="${escapeHtml(c.contact || '')}" /></div>
+        <div class="field"><label>Service</label><input id="f-service" value="${escapeHtml(c.service || '')}" /></div>
+        <div class="field"><label>Status</label><select id="f-status">
+          <option value="active" ${(c.status || 'active') === 'active' ? 'selected' : ''}>Active</option>
+          <option value="inactive" ${c.status === 'inactive' ? 'selected' : ''}>Inactive</option>
+        </select></div>
         <p class="form-error" id="f-err"></p>
-        <div class="modal-actions"><button class="btn btn-ghost" id="f-cancel">Cancel</button><button class="btn btn-primary" id="f-save">Add client</button></div>`);
+        <div class="modal-actions">
+          ${client ? '<button class="btn btn-danger" id="f-delete">Remove</button><div class="spacer"></div>' : ''}
+          <button class="btn btn-ghost" id="f-cancel">Cancel</button>
+          <button class="btn btn-primary" id="f-save">${client ? 'Save' : 'Add client'}</button>
+        </div>`);
       modal.querySelector('#f-cancel').addEventListener('click', closeModal);
+      if (client) {
+        modal.querySelector('#f-delete').addEventListener('click', async () => {
+          if (!confirm('Remove this client?')) return;
+          try { await api(`/api/clients/${client.id}`, { method: 'DELETE' }); client.archived = true; closeModal(); toast('Client removed'); render(); }
+          catch (e) { modal.querySelector('#f-err').textContent = e.message; }
+        });
+      }
       modal.querySelector('#f-save').addEventListener('click', async () => {
         const body = {
           name: modal.querySelector('#f-name').value.trim(),
@@ -84,8 +107,11 @@
           status: modal.querySelector('#f-status').value,
         };
         if (!body.name && !body.company) { modal.querySelector('#f-err').textContent = 'Enter a name or company.'; return; }
-        try { const r = await api('/api/clients', { method: 'POST', body: JSON.stringify(body) }); items.push(r.record); closeModal(); toast('Client added'); render(); }
-        catch (e) { modal.querySelector('#f-err').textContent = e.message; }
+        try {
+          if (client) { const r = await api(`/api/clients/${client.id}`, { method: 'PATCH', body: JSON.stringify(body) }); Object.assign(client, r.record); toast('Client saved'); }
+          else { const r = await api('/api/clients', { method: 'POST', body: JSON.stringify(body) }); items.push(r.record); toast('Client added'); }
+          closeModal(); render();
+        } catch (e) { modal.querySelector('#f-err').textContent = e.message; }
       });
       modal.querySelector('#f-name').focus();
     }
@@ -94,7 +120,7 @@
       try { const r = await api('/api/clients'); items = r.clients || []; render(); }
       catch (e) { toast(e.message, true); }
     }
-    document.getElementById('new-btn').addEventListener('click', openForm);
+    document.getElementById('new-btn').addEventListener('click', () => openForm());
     load();
   </script>
 </body>
