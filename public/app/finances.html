@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Finances · Ignite Manager</title>
+  <link rel="icon" href="/assets/favicon-64.png" sizes="64x64" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/shared.css" />
+  <style>
+    .sum-strip { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 18px; }
+    .sum-strip .s { }
+    .sum-strip .s .v { font-family: var(--display); font-size: 1.6rem; line-height: 1; }
+    .sum-strip .s .v.pos { color: var(--green); } .sum-strip .s .v.neg { color: var(--red); }
+    .sum-strip .s .l { color: var(--muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; margin-top: 3px; }
+    .report-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; } @media (max-width:900px){ .report-grid{ grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar-root"></aside>
+    <main class="content">
+      <div class="page-head">
+        <div><h1>Finances</h1><p class="sub">Transactions, invoices, assets & reports</p></div>
+        <div class="page-actions"><button class="btn btn-primary" id="primary-btn">+ New transaction</button></div>
+      </div>
+
+      <div class="tabs" id="tabs">
+        <button class="tab" data-tab="transactions">Transactions</button>
+        <button class="tab" data-tab="revenue">Revenue</button>
+        <button class="tab" data-tab="assets">Assets</button>
+        <button class="tab" data-tab="reports">Reports</button>
+      </div>
+
+      <div id="tab-body"></div>
+    </main>
+  </div>
+
+  <script src="/assets/shared.js"></script>
+  <script src="/assets/charts.js"></script>
+  <script>
+    requireAuth();
+    initShell('finances');
+
+    const TXN_TYPES = ['revenue', 'expense', 'asset', 'contribution', 'distribution'];
+    const TXN_LABEL = { revenue: 'Revenue', expense: 'Expense', asset: 'Asset purchase', contribution: 'Owner contribution', distribution: 'Owner distribution' };
+    const TXN_BADGE = { revenue: 'badge-green', expense: 'badge-red', asset: 'badge-ink', contribution: 'badge-green', distribution: 'badge-red' };
+    const INFLOW = (t) => t === 'revenue' || t === 'contribution';
+    const INV_STATUSES = ['draft', 'sent', 'paid', 'overdue'];
+    const INV_BADGE = { draft: 'badge-cream', sent: 'badge-orange', paid: 'badge-green', overdue: 'badge-red' };
+
+    let txns = [], invoices = [], assets = [];
+    let tab = new URLSearchParams(location.search).get('tab') || 'transactions';
+
+    function setTab(t) {
+      tab = t;
+      document.querySelectorAll('#tabs .tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === t));
+      const primary = document.getElementById('primary-btn');
+      primary.textContent = { transactions: '+ New transaction', revenue: '+ New invoice', assets: '+ New asset', reports: '⎙ Print / PDF' }[t];
+      render();
+    }
+
+    /* ------------------------------ transactions ---------------------------- */
+    function renderTransactions() {
+      const active = txns.filter((t) => !t.archived);
+      const inflow = active.filter((t) => INFLOW(t.type)).reduce((s, t) => s + t.amountCents, 0);
+      const outflow = active.filter((t) => !INFLOW(t.type)).reduce((s, t) => s + t.amountCents, 0);
+      const body = document.getElementById('tab-body');
+      body.innerHTML = `
+        <div class="sum-strip">
+          <div class="s"><div class="v pos">${fmtMoney(inflow)}</div><div class="l">Money in</div></div>
+          <div class="s"><div class="v neg">${fmtMoney(outflow)}</div><div class="l">Money out</div></div>
+          <div class="s"><div class="v ${inflow - outflow >= 0 ? 'pos' : 'neg'}">${fmtMoney(inflow - outflow)}</div><div class="l">Net</div></div>
+        </div>
+        <div class="toolbar">
+          <input type="search" class="input search-input" id="tx-search" placeholder="Search transactions…" />
+          <select class="input" id="tx-type" style="width:auto;"><option value="">All types</option>${TXN_TYPES.map((t) => `<option value="${t}">${TXN_LABEL[t]}</option>`).join('')}</select>
+        </div>
+        <div class="panel"><div class="table-scroll"><table class="data-table">
+          <thead><tr><th>Type</th><th>Description</th><th>Category</th><th>Owner</th><th>Date</th><th class="num-cell">Amount</th><th></th></tr></thead>
+          <tbody id="tx-rows"></tbody></table></div><div id="tx-empty" class="empty hidden">No transactions.</div></div>`;
+      const draw = () => {
+        const q = document.getElementById('tx-search').value.trim().toLowerCase();
+        const ty = document.getElementById('tx-type').value;
+        let list = active.filter((t) => (!ty || t.type === ty) && (!q || `${t.description} ${t.category} ${t.owner}`.toLowerCase().includes(q)));
+        list.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+        document.getElementById('tx-empty').classList.toggle('hidden', list.length > 0);
+        document.getElementById('tx-rows').innerHTML = list.map((t) => `
+          <tr>
+            <td><span class="badge ${TXN_BADGE[t.type]}">${TXN_LABEL[t.type]}</span></td>
+            <td>${escapeHtml(t.description || '—')}</td>
+            <td>${escapeHtml(t.category || '—')}</td>
+            <td>${escapeHtml(t.owner || '—')}</td>
+            <td class="num-cell">${fmtDateShort(t.date)}</td>
+            <td class="num-cell" style="color:${INFLOW(t.type) ? 'var(--green)' : 'var(--red)'};font-weight:700;">${INFLOW(t.type) ? '+' : '−'}${fmtMoney(t.amountCents)}</td>
+            <td class="num-cell"><button class="btn btn-ghost btn-small tx-edit" data-id="${t.id}">Edit</button> <button class="btn btn-danger btn-small tx-arch" data-id="${t.id}">Archive</button></td>
+          </tr>`).join('');
+        document.querySelectorAll('.tx-edit').forEach((b) => b.addEventListener('click', () => openTxnForm(txns.find((x) => x.id === b.dataset.id))));
+        document.querySelectorAll('.tx-arch').forEach((b) => b.addEventListener('click', async () => {
+          if (!confirm('Archive this transaction?')) return;
+          try { await api(`/api/transactions/${b.dataset.id}`, { method: 'DELETE' }); const t = txns.find((x) => x.id === b.dataset.id); if (t) t.archived = true; toast('Archived'); renderTransactions(); } catch (e) { toast(e.message, true); }
+        }));
+      };
+      document.getElementById('tx-search').addEventListener('input', draw);
+      document.getElementById('tx-type').addEventListener('change', draw);
+      draw();
+    }
+
+    function openTxnForm(txn) {
+      const t = txn || {};
+      const modal = openModal(`
+        <h2>${txn ? 'Edit transaction' : 'New transaction'}</h2>
+        <div class="field-row">
+          <div class="field"><label>Type</label><select id="f-type">${TXN_TYPES.map((x) => `<option value="${x}" ${x === (t.type || 'revenue') ? 'selected' : ''}>${TXN_LABEL[x]}</option>`).join('')}</select></div>
+          <div class="field"><label>Amount ($)</label><input type="number" step="0.01" id="f-amount" value="${t.amountCents != null ? centsToInput(t.amountCents) : ''}" /></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Date</label><input type="date" id="f-date" value="${escapeHtml(t.date || todayISO())}" /></div>
+          <div class="field"><label>Category</label><input id="f-cat" value="${escapeHtml(t.category || '')}" /></div>
+        </div>
+        <div class="field"><label>Description</label><input id="f-desc" value="${escapeHtml(t.description || '')}" /></div>
+        <div class="field"><label>Owner</label><select id="f-owner"><option value=""></option>${['Will Bertoncini', 'Joshua Berry'].map((o) => `<option ${o === t.owner ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
+        <p class="form-error" id="f-err"></p>
+        <div class="modal-actions"><button class="btn btn-ghost" id="f-cancel">Cancel</button><button class="btn btn-primary" id="f-save">Save</button></div>`);
+      modal.querySelector('#f-cancel').addEventListener('click', closeModal);
+      modal.querySelector('#f-save').addEventListener('click', async () => {
+        const body = {
+          type: modal.querySelector('#f-type').value,
+          amountCents: dollarsToCents(modal.querySelector('#f-amount').value || 0),
+          date: modal.querySelector('#f-date').value,
+          category: modal.querySelector('#f-cat').value.trim(),
+          description: modal.querySelector('#f-desc').value.trim(),
+          owner: modal.querySelector('#f-owner').value.trim(),
+        };
+        if (!body.amountCents) { modal.querySelector('#f-err').textContent = 'Amount is required.'; return; }
+        try {
+          if (txn) { const r = await api(`/api/transactions/${txn.id}`, { method: 'PATCH', body: JSON.stringify(body) }); Object.assign(txn, r.record); }
+          else { const r = await api('/api/transactions', { method: 'POST', body: JSON.stringify(body) }); txns.push(r.record); }
+          closeModal(); toast('Transaction saved'); renderTransactions();
+        } catch (e) { modal.querySelector('#f-err').textContent = e.message; }
+      });
+    }
+
+    /* -------------------------------- revenue ------------------------------- */
+    function renderRevenue() {
+      const active = invoices.filter((i) => !i.archived);
+      const outstanding = active.filter((i) => i.status === 'sent' || i.status === 'overdue').reduce((s, i) => s + i.amountCents, 0);
+      const paid = active.filter((i) => i.status === 'paid').reduce((s, i) => s + i.amountCents, 0);
+      document.getElementById('tab-body').innerHTML = `
+        <div class="sum-strip">
+          <div class="s"><div class="v">${fmtMoney(paid)}</div><div class="l">Collected</div></div>
+          <div class="s"><div class="v neg">${fmtMoney(outstanding)}</div><div class="l">Outstanding</div></div>
+        </div>
+        <div class="panel"><div class="table-scroll"><table class="data-table">
+          <thead><tr><th>Invoice</th><th>Client</th><th class="num-cell">Amount</th><th>Status</th><th>Issued</th><th>Due</th><th></th></tr></thead>
+          <tbody id="inv-rows"></tbody></table></div><div id="inv-empty" class="empty ${active.length ? 'hidden' : ''}">No invoices yet.</div></div>`;
+      document.getElementById('inv-rows').innerHTML = active.sort((a, b) => String(b.issueDate || '').localeCompare(String(a.issueDate || ''))).map((i) => `
+        <tr>
+          <td><strong>${escapeHtml(i.number || '—')}</strong></td>
+          <td>${escapeHtml(i.client || '—')}</td>
+          <td class="num-cell">${fmtMoney(i.amountCents)}</td>
+          <td><span class="badge ${INV_BADGE[i.status]}">${i.status}</span></td>
+          <td class="num-cell">${i.issueDate ? fmtDateShort(i.issueDate) : '—'}</td>
+          <td class="num-cell">${i.dueDate ? fmtDateShort(i.dueDate) : '—'}</td>
+          <td class="num-cell">
+            ${i.status !== 'paid' ? `<button class="btn btn-ghost btn-small inv-paid" data-id="${i.id}">Mark paid</button>` : ''}
+            <button class="btn btn-ghost btn-small inv-edit" data-id="${i.id}">Edit</button>
+            <button class="btn btn-danger btn-small inv-arch" data-id="${i.id}">Archive</button>
+          </td>
+        </tr>`).join('');
+      document.querySelectorAll('.inv-edit').forEach((b) => b.addEventListener('click', () => openInvoiceForm(invoices.find((x) => x.id === b.dataset.id))));
+      document.querySelectorAll('.inv-paid').forEach((b) => b.addEventListener('click', async () => {
+        try { const r = await api(`/api/invoices/${b.dataset.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'paid', paidDate: todayISO() }) }); Object.assign(invoices.find((x) => x.id === b.dataset.id), r.record); toast('Marked paid'); renderRevenue(); } catch (e) { toast(e.message, true); }
+      }));
+      document.querySelectorAll('.inv-arch').forEach((b) => b.addEventListener('click', async () => {
+        if (!confirm('Archive this invoice?')) return;
+        try { await api(`/api/invoices/${b.dataset.id}`, { method: 'DELETE' }); const i = invoices.find((x) => x.id === b.dataset.id); if (i) i.archived = true; toast('Archived'); renderRevenue(); } catch (e) { toast(e.message, true); }
+      }));
+    }
+
+    function openInvoiceForm(inv) {
+      const i = inv || {};
+      const modal = openModal(`
+        <h2>${inv ? 'Edit invoice' : 'New invoice'}</h2>
+        <div class="field-row">
+          <div class="field"><label>Invoice #</label><input id="f-num" value="${escapeHtml(i.number || '')}" /></div>
+          <div class="field"><label>Amount ($)</label><input type="number" step="0.01" id="f-amt" value="${i.amountCents != null ? centsToInput(i.amountCents) : ''}" /></div>
+        </div>
+        <div class="field"><label>Client</label><input id="f-client" value="${escapeHtml(i.client || '')}" /></div>
+        <div class="field-row-3">
+          <div class="field"><label>Status</label><select id="f-status">${INV_STATUSES.map((s) => `<option value="${s}" ${s === (i.status || 'draft') ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+          <div class="field"><label>Issued</label><input type="date" id="f-issue" value="${escapeHtml(i.issueDate || '')}" /></div>
+          <div class="field"><label>Due</label><input type="date" id="f-due" value="${escapeHtml(i.dueDate || '')}" /></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea id="f-notes">${escapeHtml(i.notes || '')}</textarea></div>
+        <p class="form-error" id="f-err"></p>
+        <div class="modal-actions"><button class="btn btn-ghost" id="f-cancel">Cancel</button><button class="btn btn-primary" id="f-save">Save</button></div>`);
+      modal.querySelector('#f-cancel').addEventListener('click', closeModal);
+      modal.querySelector('#f-save').addEventListener('click', async () => {
+        const body = {
+          number: modal.querySelector('#f-num').value.trim(),
+          amountCents: dollarsToCents(modal.querySelector('#f-amt').value || 0),
+          client: modal.querySelector('#f-client').value.trim(),
+          status: modal.querySelector('#f-status').value,
+          issueDate: modal.querySelector('#f-issue').value,
+          dueDate: modal.querySelector('#f-due').value,
+          notes: modal.querySelector('#f-notes').value.trim(),
+        };
+        if (!body.client) { modal.querySelector('#f-err').textContent = 'Client is required.'; return; }
+        try {
+          if (inv) { const r = await api(`/api/invoices/${inv.id}`, { method: 'PATCH', body: JSON.stringify(body) }); Object.assign(inv, r.record); }
+          else { const r = await api('/api/invoices', { method: 'POST', body: JSON.stringify(body) }); invoices.push(r.record); }
+          closeModal(); toast('Invoice saved'); renderRevenue();
+        } catch (e) { modal.querySelector('#f-err').textContent = e.message; }
+      });
+    }
+
+    /* --------------------------------- assets ------------------------------- */
+    function renderAssets() {
+      const active = assets.filter((a) => !a.archived);
+      const total = active.reduce((s, a) => s + a.purchaseCents, 0);
+      document.getElementById('tab-body').innerHTML = `
+        <div class="sum-strip"><div class="s"><div class="v">${fmtMoney(total)}</div><div class="l">Total asset cost</div></div><div class="s"><div class="v">${active.length}</div><div class="l">Assets</div></div></div>
+        <div class="panel"><div class="table-scroll"><table class="data-table">
+          <thead><tr><th>Asset</th><th>Category</th><th class="num-cell">Purchase price</th><th>Purchased</th><th></th></tr></thead>
+          <tbody id="as-rows"></tbody></table></div><div id="as-empty" class="empty ${active.length ? 'hidden' : ''}">No assets yet.</div></div>`;
+      document.getElementById('as-rows').innerHTML = active.sort((a, b) => String(b.purchaseDate || '').localeCompare(String(a.purchaseDate || ''))).map((a) => `
+        <tr>
+          <td><strong>${escapeHtml(a.name || '—')}</strong>${a.notes ? `<div class="cell-sub">${escapeHtml(a.notes.slice(0, 70))}</div>` : ''}</td>
+          <td>${escapeHtml(a.category || '—')}</td>
+          <td class="num-cell">${fmtMoney(a.purchaseCents)}</td>
+          <td class="num-cell">${a.purchaseDate ? fmtDateShort(a.purchaseDate) : '—'}</td>
+          <td class="num-cell"><button class="btn btn-ghost btn-small as-edit" data-id="${a.id}">Edit</button> <button class="btn btn-danger btn-small as-arch" data-id="${a.id}">Archive</button></td>
+        </tr>`).join('');
+      document.querySelectorAll('.as-edit').forEach((b) => b.addEventListener('click', () => openAssetForm(assets.find((x) => x.id === b.dataset.id))));
+      document.querySelectorAll('.as-arch').forEach((b) => b.addEventListener('click', async () => {
+        if (!confirm('Archive this asset?')) return;
+        try { await api(`/api/assets/${b.dataset.id}`, { method: 'DELETE' }); const a = assets.find((x) => x.id === b.dataset.id); if (a) a.archived = true; toast('Archived'); renderAssets(); } catch (e) { toast(e.message, true); }
+      }));
+    }
+
+    function openAssetForm(asset) {
+      const a = asset || {};
+      const modal = openModal(`
+        <h2>${asset ? 'Edit asset' : 'New asset'}</h2>
+        <div class="field"><label>Name</label><input id="f-name" value="${escapeHtml(a.name || '')}" /></div>
+        <div class="field-row-3">
+          <div class="field"><label>Category</label><input id="f-cat" value="${escapeHtml(a.category || '')}" /></div>
+          <div class="field"><label>Price ($)</label><input type="number" step="0.01" id="f-price" value="${a.purchaseCents != null ? centsToInput(a.purchaseCents) : ''}" /></div>
+          <div class="field"><label>Purchased</label><input type="date" id="f-date" value="${escapeHtml(a.purchaseDate || '')}" /></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea id="f-notes">${escapeHtml(a.notes || '')}</textarea></div>
+        <p class="form-error" id="f-err"></p>
+        <div class="modal-actions"><button class="btn btn-ghost" id="f-cancel">Cancel</button><button class="btn btn-primary" id="f-save">Save</button></div>`);
+      modal.querySelector('#f-cancel').addEventListener('click', closeModal);
+      modal.querySelector('#f-save').addEventListener('click', async () => {
+        const body = {
+          name: modal.querySelector('#f-name').value.trim(),
+          category: modal.querySelector('#f-cat').value.trim(),
+          purchaseCents: dollarsToCents(modal.querySelector('#f-price').value || 0),
+          purchaseDate: modal.querySelector('#f-date').value,
+          notes: modal.querySelector('#f-notes').value.trim(),
+        };
+        if (!body.name) { modal.querySelector('#f-err').textContent = 'Name is required.'; return; }
+        try {
+          if (asset) { const r = await api(`/api/assets/${asset.id}`, { method: 'PATCH', body: JSON.stringify(body) }); Object.assign(asset, r.record); }
+          else { const r = await api('/api/assets', { method: 'POST', body: JSON.stringify(body) }); assets.push(r.record); }
+          closeModal(); toast('Asset saved'); renderAssets();
+        } catch (e) { modal.querySelector('#f-err').textContent = e.message; }
+      });
+    }
+
+    /* -------------------------------- reports ------------------------------- */
+    function rangeBounds(preset) {
+      const now = new Date(); const y = now.getFullYear();
+      if (preset === 'month') return [new Date(y, now.getMonth(), 1), new Date(y, now.getMonth() + 1, 0)];
+      if (preset === 'quarter') { const q = Math.floor(now.getMonth() / 3); return [new Date(y, q * 3, 1), new Date(y, q * 3 + 3, 0)]; }
+      if (preset === 'year') return [new Date(y, 0, 1), new Date(y, 11, 31)];
+      return [new Date(2000, 0, 1), new Date(2100, 0, 1)];
+    }
+    let reportPreset = 'year';
+
+    function renderReports() {
+      const [start, end] = rangeBounds(reportPreset);
+      const inRange = (d) => { const x = new Date(d + (d && d.length <= 10 ? 'T00:00:00' : '')); return !isNaN(x) && x >= start && x <= end; };
+      const active = txns.filter((t) => !t.archived && inRange(t.date));
+      const sum = (pred) => active.filter(pred).reduce((s, t) => s + t.amountCents, 0);
+      const revenue = sum((t) => t.type === 'revenue');
+      const expense = sum((t) => t.type === 'expense');
+      const contrib = sum((t) => t.type === 'contribution');
+      const distrib = sum((t) => t.type === 'distribution');
+      const assetBuy = sum((t) => t.type === 'asset');
+      const net = revenue - expense;
+
+      // Expense by category
+      const byCat = {};
+      active.filter((t) => t.type === 'expense').forEach((t) => { const k = t.category || 'Uncategorized'; byCat[k] = (byCat[k] || 0) + t.amountCents; });
+      const catSegs = Object.entries(byCat).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+
+      document.getElementById('tab-body').innerHTML = `
+        <div class="filter-row no-print" id="range-pills">
+          ${[['month', 'This month'], ['quarter', 'This quarter'], ['year', 'This year'], ['all', 'All time']].map(([v, l]) => `<button class="filter-pill ${v === reportPreset ? 'active' : ''}" data-v="${v}">${l}</button>`).join('')}
+          <div class="spacer" style="flex:1;"></div>
+          <button class="btn btn-ghost btn-small" id="csv-btn">Export CSV</button>
+        </div>
+        <div class="panel print-only" style="display:none;"><h2 style="font-family:var(--display);">Ignite Development LLC — Profit &amp; Loss</h2><p class="hint">${start.toLocaleDateString()} – ${end.toLocaleDateString()}</p></div>
+        <div class="sum-strip">
+          <div class="s"><div class="v pos">${fmtMoney(revenue)}</div><div class="l">Revenue</div></div>
+          <div class="s"><div class="v neg">${fmtMoney(expense)}</div><div class="l">Expenses</div></div>
+          <div class="s"><div class="v ${net >= 0 ? 'pos' : 'neg'}">${fmtMoney(net)}</div><div class="l">Net profit</div></div>
+        </div>
+        <div class="report-grid">
+          <div class="panel">
+            <div class="panel-head"><h2>Profit &amp; Loss</h2></div>
+            <table class="data-table"><tbody>
+              <tr><td>Revenue</td><td class="num-cell" style="color:var(--green);font-weight:700;">${fmtMoney(revenue)}</td></tr>
+              ${catSegs.map((c) => `<tr><td style="padding-left:24px;color:var(--muted);">${escapeHtml(c.label)}</td><td class="num-cell">−${fmtMoney(c.value)}</td></tr>`).join('')}
+              <tr><td><strong>Total expenses</strong></td><td class="num-cell" style="color:var(--red);font-weight:700;">−${fmtMoney(expense)}</td></tr>
+              <tr style="border-top:2px solid var(--border-strong);"><td><strong>Net profit</strong></td><td class="num-cell" style="font-weight:700;color:${net >= 0 ? 'var(--green)' : 'var(--red)'};">${fmtMoney(net)}</td></tr>
+            </tbody></table>
+            <div class="panel-head" style="margin-top:18px;"><h2>Owner activity &amp; assets</h2></div>
+            <table class="data-table"><tbody>
+              <tr><td>Owner contributions</td><td class="num-cell">${fmtMoney(contrib)}</td></tr>
+              <tr><td>Owner distributions</td><td class="num-cell">${fmtMoney(distrib)}</td></tr>
+              <tr><td>Asset purchases</td><td class="num-cell">${fmtMoney(assetBuy)}</td></tr>
+            </tbody></table>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Expenses by category</h2></div>
+            ${catSegs.length ? donutChart(catSegs, { centerSub: 'expenses' }) : '<p class="empty">No expenses in range.</p>'}
+          </div>
+        </div>`;
+      document.querySelectorAll('#range-pills .filter-pill').forEach((b) => b.addEventListener('click', () => { reportPreset = b.dataset.v; renderReports(); }));
+      document.getElementById('csv-btn').addEventListener('click', () => exportCSV(active, start, end));
+    }
+
+    function exportCSV(rows, start, end) {
+      const header = ['Date', 'Type', 'Category', 'Description', 'Owner', 'Amount'];
+      const lines = [header.join(',')];
+      rows.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))).forEach((t) => {
+        const cells = [t.date, TXN_LABEL[t.type], t.category, t.description, t.owner, (t.amountCents / 100).toFixed(2)]
+          .map((c) => `"${String(c == null ? '' : c).replace(/"/g, '""')}"`);
+        lines.push(cells.join(','));
+      });
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `ignite-finances-${start.toISOString().slice(0, 10)}-to-${end.toISOString().slice(0, 10)}.csv`;
+      a.click(); URL.revokeObjectURL(a.href);
+      toast('CSV exported');
+    }
+
+    /* --------------------------------- wiring ------------------------------- */
+    function render() {
+      if (tab === 'transactions') renderTransactions();
+      else if (tab === 'revenue') renderRevenue();
+      else if (tab === 'assets') renderAssets();
+      else renderReports();
+    }
+    document.getElementById('primary-btn').addEventListener('click', () => {
+      if (tab === 'transactions') openTxnForm(null);
+      else if (tab === 'revenue') openInvoiceForm(null);
+      else if (tab === 'assets') openAssetForm(null);
+      else window.print();
+    });
+    document.querySelectorAll('#tabs .tab').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
+
+    async function load() {
+      try {
+        const [t, i, a] = await Promise.all([api('/api/transactions'), api('/api/invoices'), api('/api/assets')]);
+        txns = t.transactions || []; invoices = i.invoices || []; assets = a.assets || [];
+        setTab(tab);
+        if (new URLSearchParams(location.search).get('new') === '1' && tab === 'transactions') openTxnForm(null);
+      } catch (e) { toast(e.message, true); }
+    }
+    load();
+  </script>
+</body>
+</html>

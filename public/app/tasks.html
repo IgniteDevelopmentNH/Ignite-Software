@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tasks · Ignite Manager</title>
+  <link rel="icon" href="/assets/favicon-64.png" sizes="64x64" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/shared.css" />
+  <style>
+    .done-title { text-decoration: line-through; color: var(--muted); }
+    .check-btn { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--border-strong); background: transparent; cursor: pointer; padding: 0; font-size: 0.9rem; line-height: 1; color: #fff; }
+    .check-btn:hover { border-color: var(--orange); }
+    .check-btn.done { background: var(--orange); border-color: var(--orange); }
+    .row-x { border: none; background: none; cursor: pointer; color: var(--muted); font-size: 1.1rem; line-height: 1; padding: 4px 8px; }
+    .row-x:hover { color: var(--orange-dark); }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar-root"></aside>
+    <main class="content">
+      <div class="page-head">
+        <div><h1>Tasks</h1><p class="sub" id="count-sub">—</p></div>
+        <div class="page-actions"><button class="btn btn-primary" id="new-btn">+ New task</button></div>
+      </div>
+
+      <div class="panel"><div class="table-scroll"><table class="data-table">
+        <thead><tr><th style="width:40px;"></th><th>Task</th><th>Person</th><th>Due</th><th style="width:40px;"></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div><div id="empty" class="empty hidden">No tasks yet.</div></div>
+    </main>
+  </div>
+
+  <script src="/assets/shared.js"></script>
+  <script>
+    requireAuth();
+    initShell('tasks');
+
+    const OWNERS = ['Will Bertoncini', 'Joshua Berry'];
+    let tasks = [];
+
+    function sorted() {
+      // Open first (soonest due -> latest), then completed (soonest -> latest).
+      return tasks.slice().sort((a, b) => {
+        if ((a.status === 'done') !== (b.status === 'done')) return a.status === 'done' ? 1 : -1;
+        return String(a.due || '9999-99-99').localeCompare(String(b.due || '9999-99-99'));
+      });
+    }
+
+    function render() {
+      const list = sorted();
+      const open = tasks.filter((t) => t.status !== 'done').length;
+      document.getElementById('count-sub').textContent = `${open} open · ${tasks.length} total`;
+      document.getElementById('empty').classList.toggle('hidden', list.length > 0);
+      const overdue = (t) => t.due && t.status !== 'done' && new Date(t.due + 'T23:59:59') < new Date();
+      document.getElementById('rows').innerHTML = list.map((t) => {
+        const done = t.status === 'done';
+        return `<tr>
+          <td><button class="check-btn ${done ? 'done' : ''}" data-id="${t.id}" title="${done ? 'Mark not done' : 'Mark completed'}">${done ? '✓' : ''}</button></td>
+          <td><span class="${done ? 'done-title' : ''}" style="font-weight:600;">${escapeHtml(t.title)}</span>${done ? ' <span class="badge badge-cream">Completed</span>' : ''}</td>
+          <td>${escapeHtml(t.owner || '—')}</td>
+          <td>${t.due ? (overdue(t) ? `<span class="badge badge-orange">${fmtDateShort(t.due)}</span>` : fmtDateShort(t.due)) : '—'}</td>
+          <td class="num-cell"><button class="row-x" data-del="${t.id}" title="Remove">✕</button></td>
+        </tr>`;
+      }).join('');
+
+      document.querySelectorAll('.check-btn').forEach((b) => b.addEventListener('click', async () => {
+        const t = tasks.find((x) => x.id === b.dataset.id); if (!t) return;
+        const next = t.status === 'done' ? 'todo' : 'done';
+        try { await api(`/api/tasks/${t.id}`, { method: 'PATCH', body: JSON.stringify({ status: next }) }); t.status = next; render(); }
+        catch (e) { toast(e.message, true); }
+      }));
+      document.querySelectorAll('.row-x').forEach((b) => b.addEventListener('click', async () => {
+        if (!confirm('Remove this task?')) return;
+        try { await api(`/api/tasks/${b.dataset.del}`, { method: 'DELETE' }); tasks = tasks.filter((x) => x.id !== b.dataset.del); toast('Task removed'); render(); }
+        catch (e) { toast(e.message, true); }
+      }));
+    }
+
+    function openForm() {
+      const modal = openModal(`
+        <h2>New task</h2>
+        <div class="field"><label>Task</label><input id="f-title" /></div>
+        <div class="field-row">
+          <div class="field"><label>Person responsible</label><select id="f-owner"><option value=""></option>${OWNERS.map((o) => `<option>${o}</option>`).join('')}</select></div>
+          <div class="field"><label>Due date</label><input type="date" id="f-due" /></div>
+        </div>
+        <p class="form-error" id="f-err"></p>
+        <div class="modal-actions"><button class="btn btn-ghost" id="f-cancel">Cancel</button><button class="btn btn-primary" id="f-save">Add task</button></div>`);
+      modal.querySelector('#f-cancel').addEventListener('click', closeModal);
+      modal.querySelector('#f-save').addEventListener('click', async () => {
+        const body = {
+          title: modal.querySelector('#f-title').value.trim(),
+          owner: modal.querySelector('#f-owner').value,
+          due: modal.querySelector('#f-due').value,
+          status: 'todo',
+        };
+        if (!body.title) { modal.querySelector('#f-err').textContent = 'Enter a task.'; return; }
+        try { const r = await api('/api/tasks', { method: 'POST', body: JSON.stringify(body) }); tasks.push(r.record); closeModal(); toast('Task added'); render(); }
+        catch (e) { modal.querySelector('#f-err').textContent = e.message; }
+      });
+      modal.querySelector('#f-title').focus();
+    }
+
+    async function load() {
+      try { const r = await api('/api/tasks'); tasks = r.tasks || []; render(); }
+      catch (e) { toast(e.message, true); }
+    }
+
+    document.getElementById('new-btn').addEventListener('click', openForm);
+    load();
+  </script>
+</body>
+</html>

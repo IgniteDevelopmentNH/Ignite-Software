@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard · Ignite Manager</title>
+  <link rel="icon" href="/assets/favicon-64.png" sizes="64x64" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/shared.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar-root"></aside>
+    <main class="content">
+      <div class="page-head">
+        <div>
+          <h1>Dashboard</h1>
+          <p class="sub" id="greeting">Ignite Development LLC</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-ghost" id="seed-btn" style="display:none;">Load sample data</button>
+          <a class="btn btn-primary" href="/app/finances.html?new=1">+ New transaction</a>
+        </div>
+      </div>
+
+      <div class="stat-tiles" id="tiles"></div>
+
+      <div class="widget-grid">
+        <div class="panel" style="grid-column: 1 / -1;">
+          <div class="panel-head"><h2>Revenue, expenses & profit</h2><span class="hint" style="margin:0;">Last 6 months</span></div>
+          <div id="chart"></div>
+        </div>
+      </div>
+
+      <div class="widget-grid" style="margin-top:20px;">
+        <div class="panel">
+          <div class="panel-head"><h2>Recent transactions</h2><a class="panel-link" href="/app/finances.html">View all →</a></div>
+          <div id="recent-txns"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Upcoming tasks</h2><a class="panel-link" href="/app/tasks.html">View all →</a></div>
+          <div id="upcoming-tasks"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Upcoming events</h2><a class="panel-link" href="/app/calendar.html">Calendar →</a></div>
+          <div id="upcoming-events"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/assets/shared.js"></script>
+  <script src="/assets/charts.js"></script>
+  <script>
+    requireAuth();
+    initShell('dashboard');
+    document.getElementById('greeting').textContent =
+      `Welcome back, ${(SESSION.name || SESSION.email || '').split(' ')[0]} · Ignite Development LLC`;
+
+    const TXN_BADGE = {
+      revenue: 'badge-green', contribution: 'badge-green', expense: 'badge-red',
+      asset: 'badge-ink', distribution: 'badge-red',
+    };
+
+    function tile(label, value, opts = {}) {
+      const cls = opts.pos ? ' pos' : opts.neg ? ' neg' : '';
+      const href = opts.href;
+      const inner = `<div class="num${cls}">${value}</div><div class="lbl">${label}</div>${opts.sub ? `<div class="sub">${opts.sub}</div>` : ''}`;
+      return href ? `<a class="stat-tile" href="${href}">${inner}</a>` : `<div class="stat-tile">${inner}</div>`;
+    }
+
+    async function load() {
+      let d;
+      try { d = await api('/api/dashboard'); }
+      catch (e) { toast(e.message, true); return; }
+
+      const empty = d.recentTransactions.length === 0 && d.activeProspectCount === 0 && d.activeClientCount === 0 && d.openTaskCount === 0;
+      document.getElementById('seed-btn').style.display = empty ? 'inline-flex' : 'none';
+
+      document.getElementById('tiles').innerHTML = [
+        tile('Cash balance', fmtMoney(d.balanceCents), { pos: d.balanceCents >= 0, neg: d.balanceCents < 0 }),
+        tile('Revenue YTD', fmtMoney(d.revenueYtd, { noCents: true }), { sub: `${fmtMoney(d.revenueMonth, { noCents: true })} this month` }),
+        tile('Net profit YTD', fmtMoney(d.netYtd, { noCents: true }), { pos: d.netYtd >= 0, neg: d.netYtd < 0 }),
+        tile('Outstanding invoices', fmtMoney(d.outstandingInvoicesCents, { noCents: true }), { href: '/app/finances.html?tab=revenue' }),
+        tile('Open tasks', d.openTaskCount, { href: '/app/tasks.html' }),
+        tile('Clients', d.activeClientCount, { href: '/app/clients.html' }),
+        tile('Prospects', d.activeProspectCount, { href: '/app/prospects.html' }),
+      ].join('');
+
+      document.getElementById('chart').innerHTML = monthlyBars(d.months);
+
+      const rt = d.recentTransactions;
+      document.getElementById('recent-txns').innerHTML = rt.length ? `
+        <div class="table-scroll"><table class="data-table"><tbody>
+        ${rt.map((t) => `<tr>
+          <td><span class="badge ${TXN_BADGE[t.type] || 'badge-gray'}">${t.type}</span></td>
+          <td>${escapeHtml(t.description || t.category || '—')}<div class="cell-sub">${fmtDate(t.date)}</div></td>
+          <td class="num-cell">${t.type === 'revenue' || t.type === 'contribution' ? '+' : '−'}${fmtMoney(t.amountCents)}</td>
+        </tr>`).join('')}
+        </tbody></table></div>` : '<p class="empty">No transactions yet.</p>';
+
+      const ut = d.upcomingTasks;
+      document.getElementById('upcoming-tasks').innerHTML = ut.length ? `
+        <table class="data-table"><tbody>
+        ${ut.map((t) => `<tr>
+          <td>${escapeHtml(t.title)}<div class="cell-sub">${escapeHtml(t.owner || '')}</div></td>
+          <td class="num-cell">${t.due ? fmtDateShort(t.due) : '—'}</td>
+        </tr>`).join('')}
+        </tbody></table>` : '<p class="empty">Nothing due. Nice.</p>';
+
+      const ue = d.upcomingEvents;
+      document.getElementById('upcoming-events').innerHTML = ue.length ? `
+        <table class="data-table"><tbody>
+        ${ue.map((e) => `<tr>
+          <td>${escapeHtml(e.title)}<div class="cell-sub">${escapeHtml(e.location || '')}</div></td>
+          <td class="num-cell">${fmtDateShort(e.start)}<div class="cell-sub">${e.allDay ? 'All day' : fmtTime(e.start)}</div></td>
+        </tr>`).join('')}
+        </table>` : '<p class="empty">No upcoming events.</p>';
+    }
+
+    document.getElementById('seed-btn').addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      try { await api('/api/seed', { method: 'POST' }); toast('Sample data loaded'); await load(); }
+      catch (err) { toast(err.message, true); e.target.disabled = false; }
+    });
+
+    load();
+  </script>
+</body>
+</html>

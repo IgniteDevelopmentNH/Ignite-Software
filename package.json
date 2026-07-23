@@ -1,0 +1,11 @@
+{
+  "name": "ignite-portal",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Ignite Business Manager — Cloudflare Worker + KV business management app for Ignite Development LLC.",
+  "scripts": {
+    "dev": "node dev-server.mjs",
+    "deploy": "wrangler deploy"
+  }
+}

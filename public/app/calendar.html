@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calendar · Ignite Manager</title>
+  <link rel="icon" href="/assets/favicon-64.png" sizes="64x64" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/shared.css" />
+  <style>
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+    .cal-dow { background: var(--panel-2); padding: 8px; text-align: center; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    .cal-cell { background: var(--panel); min-height: 104px; padding: 6px; cursor: pointer; position: relative; }
+    .cal-cell:hover { background: var(--panel-2); }
+    .cal-cell.other { background: #100e0b; color: var(--muted); }
+    .cal-cell.today .daynum { background: var(--orange); color: #fff; }
+    .daynum { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 0.8rem; font-weight: 700; }
+    .cal-ev { display: block; margin-top: 3px; padding: 2px 6px; border-radius: 5px; background: var(--orange-soft); color: var(--orange-dark); font-size: 0.74rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid var(--orange); }
+    .cal-ev:hover { background: #ffe4cf; }
+    .day-col { background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 12px; }
+    .day-col h3 { font-size: 0.9rem; margin-bottom: 8px; }
+    .day-col.today { border-color: var(--orange); }
+    .week-wrap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; }
+    .ev-row { padding: 8px 10px; border-radius: 7px; background: rgba(255,107,0,0.14); border-left: 3px solid var(--orange); margin-bottom: 6px; cursor: pointer; color: var(--text); }
+    .ev-row:hover { background: rgba(255,107,0,0.22); }
+    .ev-row .et { font-weight: 700; font-size: 0.82rem; }
+    .ev-row .em { color: var(--muted); font-size: 0.76rem; }
+    @media (max-width: 900px) { .week-wrap { grid-template-columns: 1fr; } .cal-cell { min-height: 70px; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar-root"></aside>
+    <main class="content">
+      <div class="page-head">
+        <div><h1>Calendar</h1><p class="sub" id="period-label">—</p></div>
+        <div class="page-actions">
+          <button class="btn btn-ghost btn-small" id="prev">‹</button>
+          <button class="btn btn-ghost btn-small" id="today-btn">Today</button>
+          <button class="btn btn-ghost btn-small" id="next">›</button>
+          <select class="input" id="view" style="width:auto;"><option value="month">Month</option><option value="week">Week</option><option value="day">Day</option></select>
+          <button class="btn btn-primary" id="new-btn">+ New event</button>
+        </div>
+      </div>
+      <div id="cal-root"></div>
+    </main>
+  </div>
+
+  <script src="/assets/shared.js"></script>
+  <script>
+    requireAuth();
+    initShell('calendar');
+
+    let events = [], prospects = [], view = 'month', cursor = new Date();
+    const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayKey = (d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const sameDay = (a, b) => dayKey(a) === dayKey(b);
+    const startOfWeek = (d) => { const x = new Date(d); x.setDate(x.getDate() - x.getDay()); x.setHours(0, 0, 0, 0); return x; };
+    const pName = (id) => { const p = prospects.find((x) => x.id === id); return p ? (p.name || p.company) : ''; };
+    const evsOn = (d) => events.filter((e) => e.start && sameDay(new Date(e.start), d)).sort((a, b) => String(a.start).localeCompare(String(b.start)));
+
+    function setPeriodLabel() {
+      const opts = view === 'day' ? { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' } : { month: 'long', year: 'numeric' };
+      if (view === 'week') {
+        const s = startOfWeek(cursor), e = new Date(s); e.setDate(e.getDate() + 6);
+        document.getElementById('period-label').textContent = `${s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${e.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+      } else document.getElementById('period-label').textContent = cursor.toLocaleDateString('en-US', opts);
+    }
+
+    function renderMonth() {
+      const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+      const gridStart = startOfWeek(first);
+      const today = new Date();
+      let cells = DOW.map((d) => `<div class="cal-dow">${d}</div>`).join('');
+      for (let i = 0; i < 42; i++) {
+        const d = new Date(gridStart); d.setDate(d.getDate() + i);
+        const other = d.getMonth() !== cursor.getMonth();
+        const evs = evsOn(d);
+        cells += `<div class="cal-cell ${other ? 'other' : ''} ${sameDay(d, today) ? 'today' : ''}" data-date="${d.toISOString()}">
+          <span class="daynum">${d.getDate()}</span>
+          ${evs.slice(0, 3).map((e) => `<span class="cal-ev" data-id="${e.id}" title="${escapeHtml(e.title)}">${e.allDay ? '' : fmtTime(e.start) + ' '}${escapeHtml(e.title)}</span>`).join('')}
+          ${evs.length > 3 ? `<span class="cal-ev" style="background:none;border:none;color:var(--muted);">+${evs.length - 3} more</span>` : ''}
+        </div>`;
+      }
+      document.getElementById('cal-root').innerHTML = `<div class="cal-grid">${cells}</div>`;
+      wireCells();
+    }
+
+    function renderDayList(days) {
+      const today = new Date();
+      document.getElementById('cal-root').innerHTML = `<div class="week-wrap">${days.map((d) => {
+        const evs = evsOn(d);
+        return `<div class="day-col ${sameDay(d, today) ? 'today' : ''}" data-date="${d.toISOString()}">
+          <h3>${d.toLocaleDateString('en-US', { weekday: 'short' })} ${d.getDate()}</h3>
+          ${evs.map((e) => `<div class="ev-row" data-id="${e.id}"><div class="et">${escapeHtml(e.title)}</div><div class="em">${e.allDay ? 'All day' : fmtTime(e.start)}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div></div>`).join('') || '<p class="empty" style="padding:6px 0;">—</p>'}
+        </div>`;
+      }).join('')}</div>`;
+      wireCells();
+    }
+
+    function renderDay() {
+      const today = new Date();
+      const evs = evsOn(cursor);
+      document.getElementById('cal-root').innerHTML = `<div class="day-col ${sameDay(cursor, today) ? 'today' : ''}" data-date="${cursor.toISOString()}" style="max-width:640px;">
+        <h3>${cursor.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
+        ${evs.map((e) => `<div class="ev-row" data-id="${e.id}"><div class="et">${escapeHtml(e.title)}</div><div class="em">${e.allDay ? 'All day' : fmtTime(e.start) + (e.end ? '–' + fmtTime(e.end) : '')}${e.location ? ' · ' + escapeHtml(e.location) : ''}${pName(e.prospectId) ? ' · ' + escapeHtml(pName(e.prospectId)) : ''}</div></div>`).join('') || '<p class="empty">No events. Click here to add one.</p>'}
+      </div>`;
+      wireCells();
+    }
+
+    function render() {
+      setPeriodLabel();
+      if (view === 'month') renderMonth();
+      else if (view === 'week') { const s = startOfWeek(cursor); renderDayList([...Array(7)].map((_, i) => { const d = new Date(s); d.setDate(d.getDate() + i); return d; })); }
+      else renderDay();
+    }
+
+    function wireCells() {
+      document.querySelectorAll('.cal-ev, .ev-row').forEach((el) => el.addEventListener('click', (e) => {
+        e.stopPropagation(); const id = el.dataset.id; if (id) openForm(events.find((x) => x.id === id));
+      }));
+      document.querySelectorAll('.cal-cell, .day-col').forEach((cell) => cell.addEventListener('click', () => {
+        if (!cell.dataset.date) return; openForm(null, new Date(cell.dataset.date));
+      }));
+    }
+
+    function toLocalInput(iso) { if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return ''; const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+
+    function openForm(event, defaultDate) {
+      const e = event || {};
+      const start = e.start ? toLocalInput(e.start) : (defaultDate ? toLocalInput(new Date(defaultDate.setHours(9, 0, 0, 0))) : toLocalInput(new Date().setHours(9, 0, 0, 0)));
+      const opts = prospects.map((p) => `<option value="${p.id}" ${p.id === e.prospectId ? 'selected' : ''}>${escapeHtml(p.name || p.company)}</option>`).join('');
+      const modal = openModal(`
+        <h2>${event ? 'Edit event' : 'New event'}</h2>
+        <div class="field"><label>Title</label><input id="f-title" value="${escapeHtml(e.title || '')}" /></div>
+        <div class="field-row">
+          <div class="field"><label>Start</label><input type="datetime-local" id="f-start" value="${start}" /></div>
+          <div class="field"><label>End</label><input type="datetime-local" id="f-end" value="${e.end ? toLocalInput(e.end) : ''}" /></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Location</label><input id="f-loc" value="${escapeHtml(e.location || '')}" /></div>
+          <div class="field"><label>Related prospect</label><select id="f-prospect"><option value="">— none —</option>${opts}</select></div>
+        </div>
+        <div class="field"><label style="display:flex;align-items:center;gap:8px;font-weight:600;"><input type="checkbox" id="f-allday" ${e.allDay ? 'checked' : ''} style="width:auto;" /> All-day event</label></div>
+        <div class="field"><label>Notes</label><textarea id="f-notes">${escapeHtml(e.notes || '')}</textarea></div>
+        <p class="form-error" id="f-err"></p>
+        <div class="modal-actions">
+          ${event ? '<button class="btn btn-danger" id="f-del">Delete</button>' : ''}
+          <div class="spacer"></div>
+          <button class="btn btn-ghost" id="f-cancel">Cancel</button><button class="btn btn-primary" id="f-save">Save</button>
+        </div>`);
+      modal.querySelector('#f-cancel').addEventListener('click', closeModal);
+      if (event) modal.querySelector('#f-del').addEventListener('click', async () => {
+        if (!confirm('Delete this event?')) return;
+        try { await api(`/api/events/${event.id}`, { method: 'DELETE' }); events = events.filter((x) => x.id !== event.id); closeModal(); toast('Event deleted'); render(); }
+        catch (err) { toast(err.message, true); }
+      });
+      modal.querySelector('#f-save').addEventListener('click', async () => {
+        const startVal = modal.querySelector('#f-start').value, endVal = modal.querySelector('#f-end').value;
+        const body = {
+          title: modal.querySelector('#f-title').value.trim(),
+          start: startVal ? new Date(startVal).toISOString() : '',
+          end: endVal ? new Date(endVal).toISOString() : '',
+          location: modal.querySelector('#f-loc').value.trim(),
+          prospectId: modal.querySelector('#f-prospect').value,
+          allDay: modal.querySelector('#f-allday').checked,
+          notes: modal.querySelector('#f-notes').value.trim(),
+        };
+        if (!body.title) { modal.querySelector('#f-err').textContent = 'Title is required.'; return; }
+        if (!body.start) { modal.querySelector('#f-err').textContent = 'Start time is required.'; return; }
+        try {
+          if (event) { const r = await api(`/api/events/${event.id}`, { method: 'PATCH', body: JSON.stringify(body) }); Object.assign(event, r.record); }
+          else { const r = await api('/api/events', { method: 'POST', body: JSON.stringify(body) }); events.push(r.record); }
+          closeModal(); toast('Event saved'); render();
+        } catch (err) { modal.querySelector('#f-err').textContent = err.message; }
+      });
+    }
+
+    function shift(dir) {
+      if (view === 'month') cursor.setMonth(cursor.getMonth() + dir);
+      else if (view === 'week') cursor.setDate(cursor.getDate() + dir * 7);
+      else cursor.setDate(cursor.getDate() + dir);
+      cursor = new Date(cursor); render();
+    }
+
+    async function load() {
+      try { const [ev, pr] = await Promise.all([api('/api/events'), api('/api/prospects')]); events = ev.events || []; prospects = pr.prospects || []; render(); }
+      catch (e) { toast(e.message, true); }
+    }
+
+    document.getElementById('prev').addEventListener('click', () => shift(-1));
+    document.getElementById('next').addEventListener('click', () => shift(1));
+    document.getElementById('today-btn').addEventListener('click', () => { cursor = new Date(); render(); });
+    document.getElementById('view').addEventListener('change', (e) => { view = e.target.value; render(); });
+    document.getElementById('new-btn').addEventListener('click', () => openForm(null));
+    load();
+  </script>
+</body>
+</html>

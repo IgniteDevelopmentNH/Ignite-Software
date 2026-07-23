@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ignite Business Manager</title>
+  <link rel="icon" href="/assets/favicon-64.png" sizes="64x64" />
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --orange:#ff6b00; --orange-dark:#e05f00; --ink:#080807; --cream:#f2ede4; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; font-family: "DM Sans", -apple-system, sans-serif; }
+    body {
+      display: flex; align-items: center; justify-content: center; padding: 24px;
+      color: #fff;
+      background:
+        radial-gradient(1200px 600px at 70% -10%, rgba(255,107,0,0.22), transparent 60%),
+        radial-gradient(900px 500px at 10% 110%, rgba(255,107,0,0.12), transparent 55%),
+        var(--ink);
+    }
+    .card {
+      width: 100%; max-width: 400px; background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
+      padding: 34px 30px; backdrop-filter: blur(6px);
+      box-shadow: 0 24px 70px rgba(0,0,0,0.5);
+    }
+    .brand { margin-bottom: 8px; }
+    .brand img.logo { width: 100%; max-width: 230px; height: auto; display: block; }
+    .tag { color: rgba(255,255,255,0.55); font-size: 0.9rem; margin: 0 0 26px; }
+    h1 { font-family: "Bebas Neue", sans-serif; font-weight: 400; font-size: 1.7rem; letter-spacing: 0.02em; margin: 0 0 4px; }
+    .sub { color: rgba(255,255,255,0.5); font-size: 0.86rem; margin: 0 0 20px; }
+    label { display: block; font-size: 0.8rem; font-weight: 600; margin: 0 0 5px; color: rgba(255,255,255,0.8); }
+    input {
+      width: 100%; padding: 11px 13px; margin-bottom: 15px; border-radius: 9px;
+      border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.06);
+      color: #fff; font-family: inherit; font-size: 0.95rem;
+    }
+    input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px rgba(255,107,0,0.25); }
+    input::placeholder { color: rgba(255,255,255,0.35); }
+    button.primary {
+      width: 100%; padding: 12px; border: none; border-radius: 9px; cursor: pointer;
+      background: var(--orange); color: #fff; font-family: inherit; font-weight: 700; font-size: 0.98rem;
+    }
+    button.primary:hover { background: var(--orange-dark); }
+    button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
+    .err { color: #ff9a7a; font-size: 0.85rem; min-height: 1.1em; margin: 0 0 12px; }
+    .toggle { margin-top: 18px; text-align: center; font-size: 0.86rem; color: rgba(255,255,255,0.55); }
+    .toggle a { color: var(--orange); cursor: pointer; text-decoration: none; font-weight: 600; }
+    .toggle a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <img src="/assets/ignite-logo.png" alt="Ignite Development" class="logo" />
+    </div>
+    <p class="tag">Business Manager · internal</p>
+
+    <h1 id="form-title">Sign in</h1>
+    <p class="sub" id="form-sub">Welcome back.</p>
+
+    <form id="auth-form">
+      <div id="name-field" style="display:none;">
+        <label for="name">Your name</label>
+        <input type="text" id="name" autocomplete="name" />
+      </div>
+      <label for="email">Email</label>
+      <input type="email" id="email" autocomplete="username" required />
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="current-password" required />
+      <p class="err" id="err"></p>
+      <button type="submit" class="primary" id="submit-btn">Sign in</button>
+    </form>
+
+    <div class="toggle" id="toggle">
+      First time here? <a id="toggle-link">Set your password</a>
+    </div>
+  </div>
+
+  <script>
+    const SESSION_KEY = 'ignite_session';
+    // If already logged in, go straight to the app.
+    try { const s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); if (s && s.token) location.replace('/app/'); } catch {}
+
+    let mode = 'login'; // or 'register'
+    const els = {
+      title: document.getElementById('form-title'),
+      sub: document.getElementById('form-sub'),
+      nameField: document.getElementById('name-field'),
+      name: document.getElementById('name'),
+      email: document.getElementById('email'),
+      password: document.getElementById('password'),
+      err: document.getElementById('err'),
+      btn: document.getElementById('submit-btn'),
+      toggle: document.getElementById('toggle'),
+      toggleLink: document.getElementById('toggle-link'),
+    };
+
+    function setMode(next) {
+      mode = next;
+      const reg = mode === 'register';
+      els.title.textContent = reg ? 'Set your password' : 'Sign in';
+      els.sub.textContent = reg ? 'First-time setup for an Ignite owner account.' : 'Welcome back.';
+      els.nameField.style.display = reg ? 'block' : 'none';
+      els.password.setAttribute('autocomplete', reg ? 'new-password' : 'current-password');
+      els.btn.textContent = reg ? 'Create account' : 'Sign in';
+      els.toggle.innerHTML = reg
+        ? 'Already set up? <a id="toggle-link">Sign in</a>'
+        : 'First time here? <a id="toggle-link">Set your password</a>';
+      document.getElementById('toggle-link').addEventListener('click', () => setMode(reg ? 'login' : 'register'));
+      els.err.textContent = '';
+    }
+    els.toggleLink.addEventListener('click', () => setMode('register'));
+
+    document.getElementById('auth-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      els.err.textContent = '';
+      els.btn.disabled = true;
+      const email = els.email.value.trim().toLowerCase();
+      const password = els.password.value;
+      const name = els.name.value.trim();
+      try {
+        const path = mode === 'register' ? '/api/register' : '/api/login';
+        const body = mode === 'register' ? { name, email, password } : { email, password };
+        const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+        localStorage.setItem(SESSION_KEY, JSON.stringify({ token: data.token, name: data.name, email: data.email }));
+        location.replace('/app/');
+      } catch (err) {
+        els.err.textContent = err.message;
+        els.btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

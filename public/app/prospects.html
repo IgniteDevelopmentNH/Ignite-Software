@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prospects · Ignite Manager</title>
+  <link rel="icon" href="/assets/favicon-64.png" sizes="64x64" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/shared.css" />
+  <style>.row-x { border: none; background: none; cursor: pointer; color: var(--muted); font-size: 1.1rem; line-height: 1; padding: 4px 8px; } .row-x:hover { color: var(--orange-dark); }</style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar-root"></aside>
+    <main class="content">
+      <div class="page-head">
+        <div><h1>Prospects</h1><p class="sub" id="count-sub">—</p></div>
+        <div class="page-actions"><button class="btn btn-primary" id="new-btn">+ New prospect</button></div>
+      </div>
+      <div class="panel"><div class="table-scroll"><table class="data-table">
+        <thead><tr><th>Name</th><th>Company</th><th>Contact</th><th style="width:40px;"></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div><div id="empty" class="empty hidden">No prospects yet.</div></div>
+    </main>
+  </div>
+
+  <script src="/assets/shared.js"></script>
+  <script>
+    requireAuth();
+    initShell('prospects');
+    let items = [];
+
+    function render() {
+      const list = items.filter((p) => !p.archived).sort((a, b) => (a.name || a.company || '').localeCompare(b.name || b.company || ''));
+      document.getElementById('count-sub').textContent = `${list.length} total`;
+      document.getElementById('empty').classList.toggle('hidden', list.length > 0);
+      document.getElementById('rows').innerHTML = list.map((p) => `
+        <tr>
+          <td style="font-weight:600;">${escapeHtml(p.name || '—')}</td>
+          <td>${escapeHtml(p.company || '—')}</td>
+          <td>${escapeHtml(p.contact || '—')}</td>
+          <td class="num-cell"><button class="row-x" data-id="${p.id}" title="Remove">✕</button></td>
+        </tr>`).join('');
+      document.querySelectorAll('.row-x').forEach((b) => b.addEventListener('click', async () => {
+        if (!confirm('Remove this prospect?')) return;
+        try { await api(`/api/prospects/${b.dataset.id}`, { method: 'DELETE' }); const p = items.find((x) => x.id === b.dataset.id); if (p) p.archived = true; toast('Prospect removed'); render(); }
+        catch (e) { toast(e.message, true); }
+      }));
+    }
+
+    function openForm() {
+      const modal = openModal(`
+        <h2>New prospect</h2>
+        <div class="field"><label>Name</label><input id="f-name" /></div>
+        <div class="field"><label>Company</label><input id="f-company" /></div>
+        <div class="field"><label>Contact</label><input id="f-contact" /></div>
+        <p class="form-error" id="f-err"></p>
+        <div class="modal-actions"><button class="btn btn-ghost" id="f-cancel">Cancel</button><button class="btn btn-primary" id="f-save">Add prospect</button></div>`);
+      modal.querySelector('#f-cancel').addEventListener('click', closeModal);
+      modal.querySelector('#f-save').addEventListener('click', async () => {
+        const body = { name: modal.querySelector('#f-name').value.trim(), company: modal.querySelector('#f-company').value.trim(), contact: modal.querySelector('#f-contact').value.trim() };
+        if (!body.name && !body.company) { modal.querySelector('#f-err').textContent = 'Enter a name or company.'; return; }
+        try { const r = await api('/api/prospects', { method: 'POST', body: JSON.stringify(body) }); items.push(r.record); closeModal(); toast('Prospect added'); render(); }
+        catch (e) { modal.querySelector('#f-err').textContent = e.message; }
+      });
+      modal.querySelector('#f-name').focus();
+    }
+
+    async function load() {
+      try { const r = await api('/api/prospects'); items = r.prospects || []; render(); }
+      catch (e) { toast(e.message, true); }
+    }
+    document.getElementById('new-btn').addEventListener('click', openForm);
+    load();
+  </script>
+</body>
+</html>

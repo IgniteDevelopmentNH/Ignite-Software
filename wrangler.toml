@@ -1,0 +1,19 @@
+name = "ignite-portal"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+
+# Create with: wrangler kv namespace create PORTAL_KV
+# Then paste the id it prints in below.
+[[kv_namespaces]]
+binding = "PORTAL_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# Optional: file storage (invoices/receipts/asset docs) via R2.
+# Create with: wrangler r2 bucket create ignite-portal-files
+# [[r2_buckets]]
+# binding = "PORTAL_FILES"
+# bucket_name = "ignite-portal-files"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
