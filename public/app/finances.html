@@ -46,6 +46,13 @@
 
     const TXN_TYPES = ['revenue', 'expense', 'asset', 'contribution', 'distribution'];
     const TXN_LABEL = { revenue: 'Revenue', expense: 'Expense', asset: 'Asset purchase', contribution: 'Owner contribution', distribution: 'Owner distribution' };
+    const TXN_CATEGORIES = {
+      revenue: ['Software Development', 'AI Consultation', 'Web Design', 'AI Implementation', 'Other'],
+      expense: ['Software', 'Hosting', 'Marketing', 'Miscellaneous'],
+      asset: ['Hardware', 'Miscellaneous asset'],
+      contribution: ['Owner capital'],
+      distribution: ['Owner draw'],
+    };
     const TXN_BADGE = { revenue: 'badge-green', expense: 'badge-red', asset: 'badge-ink', contribution: 'badge-green', distribution: 'badge-red' };
     const INFLOW = (t) => t === 'revenue' || t === 'contribution';
     const INV_STATUSES = ['draft', 'sent', 'paid', 'overdue'];
@@ -118,12 +125,23 @@
         </div>
         <div class="field-row">
           <div class="field"><label>Date</label><input type="date" id="f-date" value="${escapeHtml(t.date || todayISO())}" /></div>
-          <div class="field"><label>Category</label><input id="f-cat" value="${escapeHtml(t.category || '')}" /></div>
+          <div class="field"><label>Category</label><select id="f-cat"></select></div>
         </div>
         <div class="field"><label>Description</label><input id="f-desc" value="${escapeHtml(t.description || '')}" /></div>
         <div class="field"><label>Owner</label><select id="f-owner"><option value=""></option>${['Will Bertoncini', 'Joshua Berry'].map((o) => `<option ${o === t.owner ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
         <p class="form-error" id="f-err"></p>
         <div class="modal-actions"><button class="btn btn-ghost" id="f-cancel">Cancel</button><button class="btn btn-primary" id="f-save">Save</button></div>`);
+      const typeSelect = modal.querySelector('#f-type');
+      const catSelect = modal.querySelector('#f-cat');
+      function refreshCategories() {
+        const cats = TXN_CATEGORIES[typeSelect.value] || [];
+        const current = t.category || '';
+        // Preserve an existing value even if it's not in the list for this type (e.g. legacy data).
+        const options = current && !cats.includes(current) ? [current, ...cats] : cats;
+        catSelect.innerHTML = options.map((c) => `<option value="${escapeHtml(c)}" ${c === current ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
+      }
+      refreshCategories();
+      typeSelect.addEventListener('change', () => { t.category = ''; refreshCategories(); });
       modal.querySelector('#f-cancel').addEventListener('click', closeModal);
       modal.querySelector('#f-save').addEventListener('click', async () => {
         const body = {
